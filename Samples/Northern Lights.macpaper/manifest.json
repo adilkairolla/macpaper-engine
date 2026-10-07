@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "id": "B3D7E2A1-5C44-4E0B-8F2D-7A9C1E6B4D22",
+  "title": "Northern Lights",
+  "author": "MacPaper",
+  "description": "Aurora over layered mountains, with twinkling stars and drifting valley fog. Five layers you can tweak.",
+  "tags": ["night", "aurora", "mountains", "procedural"],
+  "canvas": { "width": 3840, "height": 2160 },
+  "focus": [0.5, 0.45],
+  "poster": "poster.heic",
+  "fps": 30,
+  "drift": 0.35,
+  "layers": [
+    { "id": "sky", "type": "shader", "src": "shaders/sky.metal",
+      "params": { "top": { "type": "color", "value": "#03060f" }, "horizon": { "type": "color", "value": "#132542" } } },
+    { "id": "stars", "type": "particles", "preset": "stars", "count": 900, "area": [0, 0, 1, 0.65], "size": [0.0008, 0.0024], "parallax": 0.004 },
+    { "id": "aurora", "type": "shader", "src": "shaders/aurora.metal", "blend": "screen", "parallax": 0.006,
+      "params": {
+        "intensity": { "type": "float", "value": 1.0 }, "height": { "type": "float", "value": 0.3 },
+        "speed": { "type": "float", "value": 1.0 },
+        "colorA": { "type": "color", "value": "#3dffb0" }, "colorB": { "type": "color", "value": "#8a5cff" } } },
+    { "id": "mountains", "type": "shader", "src": "shaders/mountains.metal", "parallax": 0.018,
+      "params": { "height": { "type": "float", "value": 0.7 }, "color": { "type": "color", "value": "#1b2a44" }, "rim": { "type": "color", "value": "#6fe3c4" } } },
+    { "id": "fog", "type": "shader", "src": "shaders/fog.metal", "parallax": 0.03,
+      "params": { "density": { "type": "float", "value": 0.45 }, "height": { "type": "float", "value": 0.82 },
+                  "speed": { "type": "float", "value": 0.6 }, "color": { "type": "color", "value": "#9fb7d6" } } }
+  ],
+  "controls": [
+    { "type": "section", "label": "Aurora", "controls": [
+      { "id": "palette", "type": "choice", "style": "segmented", "label": "Colours", "quick": true,
+        "options": [
+          { "label": "Classic", "value": "classic", "set": { "aurora.params.colorA": "#3dffb0", "aurora.params.colorB": "#8a5cff", "mountains.params.rim": "#6fe3c4" } },
+          { "label": "Crimson", "value": "crimson", "set": { "aurora.params.colorA": "#ff4f7a", "aurora.params.colorB": "#ffb347", "mountains.params.rim": "#ff8a8a" } },
+          { "label": "Ice", "value": "ice", "set": { "aurora.params.colorA": "#7fd8ff", "aurora.params.colorB": "#e0f4ff", "mountains.params.rim": "#a8e6ff" } }
+        ] },
+      { "id": "intensity", "type": "slider", "label": "Intensity", "min": 0, "max": 2, "target": "aurora.params.intensity" },
+      { "id": "auroraHeight", "type": "slider", "label": "Height", "min": 0.05, "max": 0.6, "target": "aurora.params.height" },
+      { "id": "auroraSpeed", "type": "slider", "label": "Speed", "min": 0, "max": 4, "unit": "x", "target": "aurora.params.speed" }
+    ]},
+    { "type": "section", "label": "Scene", "controls": [
+      { "id": "stars", "type": "slider", "label": "Stars", "min": 0, "max": 2000, "step": 50, "target": "stars.count" },
+      { "id": "fog", "type": "toggle", "label": "Valley fog", "target": "fog.visible" },
+      { "id": "mountains", "type": "toggle", "label": "Mountains", "target": "mountains.visible" }
+    ]}
+  ]
+}

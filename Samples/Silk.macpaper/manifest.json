@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "id": "E9A2C6F0-3B71-4D8E-A5C4-1F2B9D7E3A55",
+  "title": "Silk",
+  "author": "MacPaper",
+  "description": "Endlessly folding silk. Pick a palette, or turn on audio-reactive in Settings to make it pulse with music.",
+  "tags": ["abstract", "calm", "audio", "procedural"],
+  "canvas": { "width": 3840, "height": 2160 },
+  "poster": "poster.heic",
+  "fps": 30,
+  "layers": [
+    { "id": "silk", "type": "shader", "src": "shaders/silk.metal",
+      "params": {
+        "scale": { "type": "float", "value": 1.6 }, "speed": { "type": "float", "value": 1.0 }, "pulse": { "type": "float", "value": 1.0 },
+        "a": { "type": "color", "value": "#1a0b3d" }, "b": { "type": "color", "value": "#6b2fa8" }, "c": { "type": "color", "value": "#ff7ab6" } } }
+  ],
+  "controls": [
+    { "id": "palette", "type": "choice", "style": "list", "label": "Palette", "quick": true,
+      "options": [
+        { "label": "Orchid", "value": "orchid", "set": { "silk.params.a": "#1a0b3d", "silk.params.b": "#6b2fa8", "silk.params.c": "#ff7ab6" } },
+        { "label": "Lagoon", "value": "lagoon", "set": { "silk.params.a": "#021b26", "silk.params.b": "#0f6e7a", "silk.params.c": "#7ff2d8" } },
+        { "label": "Ember", "value": "ember", "set": { "silk.params.a": "#1c0606", "silk.params.b": "#8a1e12", "silk.params.c": "#ffb257" } },
+        { "label": "Graphite", "value": "graphite", "set": { "silk.params.a": "#0b0c0f", "silk.params.b": "#2c313a", "silk.params.c": "#c9d3e3" } }
+      ] },
+    { "id": "scale", "type": "slider", "label": "Fold size", "min": 0.5, "max": 4, "target": "silk.params.scale" },
+    { "id": "speed", "type": "slider", "label": "Speed", "min": 0, "max": 3, "unit": "x", "target": "silk.params.speed" },
+    { "id": "pulse", "type": "slider", "label": "Music pulse", "min": 0, "max": 2, "target": "silk.params.pulse",
+      "help": "Needs Audio-reactive wallpapers on in Settings › Sound." }
+  ]
+}

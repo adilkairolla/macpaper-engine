@@ -1,0 +1,350 @@
+import SwiftUI
+
+struct DisplaysView: View {
+    @Environment(AppModel.self) private var model
+    @State private var stats: [String: FrameStats] = [:]
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if model.desktop.displays.count > 1 {
+                    Toggle(isOn: Binding(get: { model.prefs.perDisplay }, set: { model.setPerDisplay($0) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Different wallpaper on each display").font(.headline)
+                            Text(model.prefs.perDisplay
+                                 ? "Each display keeps its own wallpaper. Apply and Shuffle act on the display the MacPaper window is on."
+                                 : "Every display shows the same wallpaper, cropped to fit. Choosing one for a single display below turns this on.")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .padding(16)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                ForEach(model.desktop.displays) { d in
+                    DisplayCard(display: d, stats: stats[d.id])
+                }
+            }
+            .padding(24)
+        }
+        .navigationTitle("Displays")
+        .onReceive(timer) { _ in
+            var next: [String: FrameStats] = [:]
+            for d in model.desktop.displays { next[d.id] = model.desktop.stats(for: d.id) }
+            if next != stats { stats = next }
+        }
+    }
+}
+
+private struct DisplayCard: View {
+    @Environment(AppModel.self) private var model
+    let display: DisplayInfo
+    let stats: FrameStats?
+
+    var body: some View {
+        let wp = display.wallpaperID.flatMap { model.library.wallpaper(id: $0) }
+        HStack(spacing: 18) {
+            Group {
+                if let wp { PosterThumbnail(wallpaper: wp, maxSide: 800) } else { Rectangle().fill(.quaternary) }
+            }
+            .aspectRatio(display.size.width / max(display.size.height, 1), contentMode: .fit)
+            .frame(width: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.1)))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(display.name).font(.title3.weight(.semibold))
+                Text("\(Int(display.pixelSize.width)) × \(Int(display.pixelSize.height))").font(.callout).foregroundStyle(.secondary)
+                if let wp {
+                    Text(wp.title).font(.callout.weight(.medium)).padding(.top, 6)
+                    if display.paused {
+                        Label(model.desktop.pauseReason ?? "Paused while covered by windows", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
+                    } else if let stats {
+                        Text(stats.summary)
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No wallpaper").font(.callout).foregroundStyle(.secondary).padding(.top, 6)
+                }
+                Spacer()
+                HStack {
+                    Menu("Choose Wallpaper") {
+                        ForEach(model.sortedWallpapers) { w in
+                            Toggle(w.title, isOn: Binding(get: { w.id == display.wallpaperID }, set: { _ in
+                                model.apply(w, to: model.desktop.displays.count > 1 ? .display(display.id) : .everywhere)
+                            }))
+                            .disabled(!model.canApply(w))
+                        }
+                    }
+                    .fixedSize()
+                    if wp != nil {
+                        Button("Remove Wallpaper") { model.clear(display: display.id) }
+                            .help("Show the macOS desktop picture on this display instead")
+                    }
+                }
+                .controlSize(.small)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+struct ScreenSaverPage: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var prefs = model.prefs
+        let installer = model.screenSaver
+        Form {
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: "moon.stars.fill").font(.largeTitle).foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("MacPaper Screen Saver").font(.headline)
+                        Text(statusText).font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    switch installer.status {
+                    case .installed:
+                        Button("Open Screen Saver Settings") { installer.openSystemSettings() }
+                    case .unavailable:
+                        EmptyView()
+                    default:
+                        Button("Install") { installer.install() }.buttonStyle(.glassProminent)
+                    }
+                }
+                if let e = installer.lastError { Text(e).foregroundStyle(.red).font(.caption) }
+                if installer.status == .installed, !installer.isSelected {
+                    Text("Installed. Choose MacPaper in System Settings › Screen Saver to use it.").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Section("What plays") {
+                Picker("Source", selection: $prefs.saverSource) {
+                    ForEach(ScreenSaverSource.allCases) { Text($0.title).tag($0) }
+                }
+                if prefs.saverSource == .wallpaper {
+                    Picker("Wallpaper", selection: $prefs.saverWallpaperID) {
+                        Text("None").tag("")
+                        ForEach(model.sortedWallpapers) { Text($0.title).tag($0.id) }
+                    }
+                }
+                if prefs.saverSource == .favorites || prefs.saverSource == .library {
+                    Picker("Change every", selection: $prefs.saverRotateMinutes) {
+                        Text("Never").tag(0)
+                        ForEach([1, 5, 10, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                }
+                Toggle("Play sound", isOn: $prefs.saverSound)
+            }
+            Section {
+                Text("Every MacPaper wallpaper — video, shaders, particles and depth — plays live in the screen saver with your control values and crop. macOS draws its own clock on top; turn it off in System Settings › Lock Screen.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Screen Saver")
+        .onAppear { installer.refresh() }
+    }
+
+    private var statusText: String {
+        switch model.screenSaver.status {
+        case .installed: model.screenSaver.isSelected ? "Installed and selected" : "Installed"
+        case .outdated: "An update is ready to install"
+        case .notInstalled: "Not installed"
+        case .unavailable: "Unavailable — open MacPaper from its app to install the screen saver"
+        }
+    }
+}
+
+struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var prefs = model.prefs
+        TabView {
+            Form {
+                Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                Toggle("Show in Dock", isOn: $prefs.showDockIcon)
+                    .onChange(of: prefs.showDockIcon) { _, v in NSApp.setActivationPolicy(v ? .regular : .accessory) }
+                Section {
+                    Toggle("Match the macOS desktop picture", isOn: $prefs.syncDesktopPicture)
+                    Text("Sets a still frame of each wallpaper as the regular desktop picture, so Mission Control, the login screen and menu bar tint match.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section {
+                    Picker("Switching wallpapers", selection: $prefs.transitionSeconds) {
+                        Text("Cut instantly").tag(0.0)
+                        Text("Quick fade").tag(0.35)
+                        Text("Slow fade").tag(0.8)
+                    }
+                    Picker("Shuffle every", selection: $prefs.shuffleMinutes) {
+                        Text("Never").tag(0)
+                        ForEach([5, 15, 30, 60, 180], id: \.self) { Text($0 < 60 ? "\($0) min" : "\($0 / 60) h").tag($0) }
+                    }
+                    Picker("Shuffle from", selection: $prefs.shuffleSource) {
+                        ForEach(ShuffleSource.allCases) { Text($0.title).tag($0) }
+                    }
+                    .disabled(prefs.shuffleMinutes == 0)
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("General", systemImage: "gearshape") }
+
+            Form {
+                Section {
+                    Picker("Quality", selection: $prefs.quality) {
+                        ForEach(Quality.allCases) { Text($0.title).tag($0) }
+                    }
+                    Text(prefs.quality.detail).font(.caption).foregroundStyle(.secondary)
+                    Picker("Quality on battery", selection: $prefs.batteryQuality) {
+                        ForEach(Quality.allCases) { Text($0.title).tag($0) }
+                    }
+                    .disabled(prefs.pauseOnBattery)
+                    Picker("Frame rate limit", selection: $prefs.frameRateCap) {
+                        Text("No limit").tag(0)
+                        ForEach([24, 30, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                    }
+                    Text("A ceiling for every wallpaper; a wallpaper can still choose a lower rate under Adjust.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Pause when") {
+                    Toggle("The desktop is covered by windows", isOn: $prefs.pauseWhenCovered)
+                    Toggle("On battery", isOn: $prefs.pauseOnBattery)
+                    Toggle("Low Power Mode is on", isOn: $prefs.pauseInLowPowerMode)
+                    Toggle("Reduce Motion is on", isOn: $prefs.pauseWithReduceMotion)
+                    Picker("Another app is focused", selection: $prefs.focusBehavior) {
+                        ForEach(FocusBehavior.allCases) { Text($0.title).tag($0) }
+                    }
+                }
+                Section {
+                    Toggle("Pointer parallax", isOn: $prefs.pointerParallax)
+                    Text("Layers with depth shift as the pointer moves. Wallpapers still drift slowly on their own.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Performance", systemImage: "gauge.with.dots.needle.67percent") }
+
+            Form {
+                Toggle("Mute all wallpapers", isOn: $prefs.globalMute)
+                LabeledContent("Volume for all wallpapers") {
+                    HStack {
+                        Slider(value: $prefs.masterVolume, in: 0...1)
+                            .frame(width: 180)
+                            .accessibilityLabel("Volume for all wallpapers")
+                            .accessibilityValue("\(Int((prefs.masterVolume * 100).rounded()))%")
+                        Text("\(Int((prefs.masterVolume * 100).rounded()))%")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+                .disabled(prefs.globalMute)
+                Section {
+                    Toggle("Wallpapers react to sound", isOn: $prefs.audioReactive)
+                    Text("Wallpapers that support it move with the music and sound playing on your Mac. macOS asks for screen-recording permission the first time; no picture is ever captured.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let e = AudioCapture.shared.lastError { Text(e).font(.caption).foregroundStyle(.red) }
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Sound", systemImage: "speaker.wave.2") }
+        }
+        .frame(width: 540, height: 480)
+    }
+}
+
+struct MenuBarView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+    @State private var hasSound = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let current = model.currentWallpaper {
+                ZStack(alignment: .bottomLeading) {
+                    PosterThumbnail(wallpaper: current, maxSide: 700)
+                        .frame(height: 160)
+                        .frame(maxWidth: .infinity)
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(current.title).font(.headline).foregroundStyle(.white).lineLimit(1)
+                        Text(model.desktop.pauseReason ?? "Playing").font(.caption).foregroundStyle(.white.opacity(0.75))
+                    }
+                    .padding(12)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if current.manifest.allControls.contains(where: \.quick) {
+                    ControlsView(wallpaper: current, quickOnly: true)
+                }
+            } else {
+                Text("No wallpaper playing").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 60)
+            }
+
+            HStack(spacing: 8) {
+                control(model.desktop.userPaused ? "Resume" : "Pause", model.desktop.userPaused ? "play.fill" : "pause.fill") { model.desktop.userPaused.toggle() }
+                if let current = model.currentWallpaper, hasSound {
+                    let audible = model.isAudible(current.id)
+                    control(audible ? "Mute" : "Unmute", audible ? "speaker.wave.2.fill" : "speaker.slash.fill") { model.toggleSound(current.id) }
+                }
+                control("Shuffle", "shuffle") { model.shuffle() }
+            }
+
+            let recents = model.recentWallpapers.prefix(6)
+            if !recents.isEmpty {
+                Text("Recent").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                    ForEach(Array(recents)) { wp in
+                        Button { model.apply(wp) } label: {
+                            PosterThumbnail(wallpaper: wp, maxSide: 300)
+                                .aspectRatio(16 / 10, contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .overlay {
+                                    if model.activeWallpaperIDs.contains(wp.id) {
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 2)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!model.canApply(wp))
+                        .help(wp.title)
+                        .accessibilityLabel(wp.title)
+                        .accessibilityValue(model.activeWallpaperIDs.contains(wp.id) ? "on your desktop" : "")
+                        .onHover { if $0 { model.prewarm(wp) } }
+                    }
+                }
+            }
+
+            Divider()
+            HStack {
+                Button("Open MacPaper") {
+                    openWindow(id: "main")
+                    NSApp.activate()
+                }
+                Spacer()
+                SettingsLink { Text("Settings…") }
+                Button("Quit") { NSApp.terminate(nil) }
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(14)
+        .frame(width: 330)
+        .task(id: model.currentWallpaper) {
+            if let current = model.currentWallpaper { hasSound = await model.hasSound(current) } else { hasSound = false }
+        }
+    }
+
+    private func control(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.title3)
+                Text(title).font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.glass)
+    }
+}

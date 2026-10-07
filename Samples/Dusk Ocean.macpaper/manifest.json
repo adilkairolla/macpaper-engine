@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "id": "6C1F4B8E-0D2A-4F7B-9E61-3A8C5D2E7F10",
+  "title": "Dusk Ocean",
+  "author": "MacPaper",
+  "description": "A calm sea at sunset, drawn entirely by one shader. Drag the sun anywhere.",
+  "tags": ["ocean", "sunset", "procedural"],
+  "canvas": { "width": 3840, "height": 2160 },
+  "focus": [0.5, 0.5],
+  "poster": "poster.heic",
+  "fps": 30,
+  "layers": [
+    { "id": "ocean", "type": "shader", "src": "shaders/ocean.metal",
+      "params": {
+        "sun": { "type": "float2", "value": [0.62, 0.47] },
+        "horizon": { "type": "float", "value": 0.56 },
+        "speed": { "type": "float", "value": 0.6 },
+        "waves": { "type": "float", "value": 0.35 },
+        "scale": { "type": "float", "value": 1.0 },
+        "high": { "type": "color", "value": "#2a3e7a" },
+        "low": { "type": "color", "value": "#f39a6b" },
+        "sunColor": { "type": "color", "value": "#ffcf8a" },
+        "deep": { "type": "color", "value": "#122046" }
+      } },
+    { "id": "grain", "type": "shader", "src": "shaders/film-grain.metal",
+      "params": { "amount": { "type": "float", "value": 0.12 }, "size": { "type": "float", "value": 1.5 } } }
+  ],
+  "controls": [
+    { "id": "light", "type": "choice", "style": "segmented", "label": "Light", "quick": true,
+      "options": [
+        { "label": "Golden", "value": "golden", "set": { "ocean.params.high": "#2a3e7a", "ocean.params.low": "#f39a6b", "ocean.params.sunColor": "#ffcf8a", "ocean.params.deep": "#122046" } },
+        { "label": "Pink", "value": "pink", "set": { "ocean.params.high": "#3b2a6e", "ocean.params.low": "#ff8fb1", "ocean.params.sunColor": "#ffd1e0", "ocean.params.deep": "#1f1640" } },
+        { "label": "Blue hour", "value": "blue", "set": { "ocean.params.high": "#0b1435", "ocean.params.low": "#5d7fc2", "ocean.params.sunColor": "#c9dcff", "ocean.params.deep": "#060c22" } }
+      ] },
+    { "id": "sun", "type": "point", "label": "Sun", "target": "ocean.params.sun" },
+    { "id": "waves", "type": "slider", "label": "Waves", "min": 0.05, "max": 1, "target": "ocean.params.waves" },
+    { "id": "speed", "type": "slider", "label": "Speed", "min": 0, "max": 2, "unit": "x", "target": "ocean.params.speed" },
+    { "id": "grain", "type": "toggle", "label": "Film grain", "target": "grain.visible" }
+  ]
+}
