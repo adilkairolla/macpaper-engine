@@ -15,6 +15,7 @@ struct FrameInput {
     var grade: GradeUniforms
     var daylight: Float
     var dark: Float
+    var span: Span? = nil
 }
 
 /// Encodes one frame of a scene: layers bottom to top, ping-ponging between two targets only where a
@@ -32,6 +33,16 @@ final class SceneEncoder {
 
     init(session: SceneSession) {
         self.session = session
+    }
+
+    /// The canvas window an output sees; with `span`, its share of the window the whole arrangement sees.
+    nonisolated static func region(canvas: CGSize, output: CGSize, focus: SIMD2<Double>, span: Span?) -> SIMD4<Float> {
+        guard let span else { return region(canvas: canvas, output: output, focus: focus) }
+        let r = region(canvas: canvas, output: span.total, focus: focus)
+        return SIMD4(
+            r.x + Float(span.rect.minX) * r.z, r.y + Float(span.rect.minY) * r.w,
+            Float(span.rect.width) * r.z, Float(span.rect.height) * r.w
+        )
     }
 
     nonisolated static func region(canvas: CGSize, output: CGSize, focus: SIMD2<Double>) -> SIMD4<Float> {
@@ -116,7 +127,7 @@ final class SceneEncoder {
         let simDt = session.isRunning ? input.dt * session.speed : 0
         let canvas = scene.canvas
         let aspect = Float(canvas.width / max(canvas.height, 1))
-        let region = Self.region(canvas: canvas, output: input.outputSize, focus: input.focus)
+        let region = Self.region(canvas: canvas, output: input.outputSize, focus: input.focus, span: input.span)
         // Upscaling only pays off for shaders, which cost per pixel; video and images are cheaper drawn at full size.
         let shaded = scene.layers.contains { l in
             if case .shader = l.content { return l.visible }

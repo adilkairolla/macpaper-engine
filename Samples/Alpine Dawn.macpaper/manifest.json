@@ -1,0 +1,230 @@
+{
+  "canvas": {
+    "height": 2160,
+    "width": 3840
+  },
+  "controls": [
+    {
+      "id": "depth",
+      "label": "Depth",
+      "max": 0.08,
+      "min": 0,
+      "target": "plate.depthStrength",
+      "type": "slider"
+    },
+    {
+      "controls": [
+        {
+          "id": "light-rays-on",
+          "label": "On",
+          "target": "light-rays.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "light-rays-origin",
+          "label": "Light source",
+          "target": "light-rays.params.origin",
+          "type": "point"
+        },
+        {
+          "id": "light-rays-intensity",
+          "label": "Intensity",
+          "max": 2,
+          "min": 0,
+          "target": "light-rays.params.intensity",
+          "type": "slider"
+        },
+        {
+          "id": "light-rays-length",
+          "label": "Length",
+          "max": 1,
+          "min": 0.1,
+          "target": "light-rays.params.length",
+          "type": "slider"
+        },
+        {
+          "id": "light-rays-threshold",
+          "label": "Threshold",
+          "max": 1,
+          "min": 0,
+          "target": "light-rays.params.threshold",
+          "type": "slider"
+        },
+        {
+          "id": "light-rays-color",
+          "label": "Color",
+          "target": "light-rays.params.color",
+          "type": "color"
+        }
+      ],
+      "label": "Light Rays",
+      "type": "section"
+    },
+    {
+      "controls": [
+        {
+          "id": "fog-on",
+          "label": "On",
+          "target": "fog.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "fog-density",
+          "label": "Density",
+          "max": 1,
+          "min": 0,
+          "target": "fog.params.density",
+          "type": "slider",
+          "unit": "%"
+        },
+        {
+          "id": "fog-height",
+          "label": "Height",
+          "max": 1,
+          "min": 0,
+          "target": "fog.params.height",
+          "type": "slider"
+        },
+        {
+          "id": "fog-speed",
+          "label": "Speed",
+          "max": 4,
+          "min": 0,
+          "target": "fog.params.speed",
+          "type": "slider",
+          "unit": "x"
+        },
+        {
+          "id": "fog-color",
+          "label": "Color",
+          "target": "fog.params.color",
+          "type": "color"
+        }
+      ],
+      "label": "Fog",
+      "type": "section"
+    },
+    {
+      "controls": [
+        {
+          "id": "dust-on",
+          "label": "On",
+          "target": "dust.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "dust-count",
+          "label": "Amount",
+          "max": 900,
+          "min": 0,
+          "target": "dust.count",
+          "type": "slider"
+        },
+        {
+          "id": "dust-turbulence",
+          "label": "Swirl",
+          "max": 0.2,
+          "min": 0,
+          "target": "dust.turbulence",
+          "type": "slider"
+        },
+        {
+          "id": "dust-color",
+          "label": "Color",
+          "target": "dust.color",
+          "type": "color"
+        }
+      ],
+      "label": "Dust Motes",
+      "type": "section"
+    }
+  ],
+  "drift": 0.35,
+  "focus": [
+    0.5108642578125,
+    0.4256591796875
+  ],
+  "format": 1,
+  "fps": 30,
+  "id": "1BD6E5AD-E645-4062-B157-026AF127A6B8",
+  "layers": [
+    {
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.03,
+      "id": "plate",
+      "src": "images/plate.heic",
+      "type": "image"
+    },
+    {
+      "id": "light-rays",
+      "params": {
+        "color": {
+          "type": "color",
+          "value": "#ffd59a"
+        },
+        "intensity": {
+          "type": "float",
+          "value": 0.5
+        },
+        "length": {
+          "type": "float",
+          "value": 0.55
+        },
+        "origin": {
+          "type": "float2",
+          "value": [
+            0.835,
+            0.205
+          ]
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.72
+        }
+      },
+      "src": "shaders/light-rays.metal",
+      "type": "shader"
+    },
+    {
+      "id": "fog",
+      "params": {
+        "color": {
+          "type": "color",
+          "value": "#f4dcc0"
+        },
+        "density": {
+          "type": "float",
+          "value": 0.3
+        },
+        "height": {
+          "type": "float",
+          "value": 0.78
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.5
+        }
+      },
+      "src": "shaders/fog.metal",
+      "type": "shader"
+    },
+    {
+      "blend": "add",
+      "id": "dust",
+      "preset": "dust",
+      "type": "particles",
+      "count": 140,
+      "color": "#ffe6b8aa"
+    }
+  ],
+  "poster": "poster.heic",
+  "title": "Alpine Dawn",
+  "author": "MacPaper",
+  "description": "Sunrise over a still mountain lake. Light streams from the sun, mist drifts on the water, dust hangs in the air.",
+  "tags": [
+    "landscape",
+    "mountains",
+    "lake",
+    "sunrise"
+  ]
+}

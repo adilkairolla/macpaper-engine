@@ -3,11 +3,21 @@ import Metal
 import QuartzCore
 import simd
 
+/// Why a surface that should be moving isn't.
+enum Stall: String {
+    case clock = "the video clock stopped"
+    case frames = "no new frames were drawn"
+    case layer = "the video layer never showed a frame"
+    case sharedPlayer = "two video layers shared one player"
+}
+
 @MainActor
 protocol SceneContent: AnyObject {
     var view: NSView { get }
     var onFirstFrame: (() -> Void)? { get set }
     var stats: FrameStats { get }
+    /// Checked every few seconds by the desktop's freeze guard.
+    var stall: Stall? { get }
     func setPaused(_ paused: Bool)
     func setPointer(_ point: SIMD2<Float>?)
     func apply(_ settings: RenderSettings)
@@ -41,6 +51,14 @@ final class MetalSceneView: NSView, SceneContent {
     private var dark: Float = Ambient.isDark ? 1 : 0
     private var frameTimes: [CFTimeInterval] = []
     private var tornDown = false
+    private var lastPresentAt = CACurrentMediaTime()
+
+    /// A window macOS reports as hidden gets no display-link ticks, so only a visible one can be judged.
+    var stall: Stall? {
+        guard !paused, !tornDown, firstFramePresented, session.isRunning, session.scene.isAnimated,
+              window?.occlusionState.contains(.visible) == true else { return nil }
+        return CACurrentMediaTime() - lastPresentAt > 5 ? .frames : nil
+    }
 
     init(session: SceneSession, settings: RenderSettings, frame: NSRect) {
         self.session = session
@@ -217,7 +235,8 @@ final class MetalSceneView: NSView, SceneContent {
             pointer: pointer,
             grade: grade,
             daylight: daylight,
-            dark: dark
+            dark: dark,
+            span: settings.span
         )
         encoder.encode(cb, output: drawable.texture, input: input)
         if !firstFramePresented {
@@ -228,6 +247,7 @@ final class MetalSceneView: NSView, SceneContent {
             }
         }
         cb.present(drawable)
+        lastPresentAt = CACurrentMediaTime()
         let cpu = (CACurrentMediaTime() - cpuStart) * 1000
         inFlight += 1
         let session = self.session

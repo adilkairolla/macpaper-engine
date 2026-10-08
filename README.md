@@ -15,9 +15,9 @@ in an open package format you can write by hand, with an AI, or generate from an
 
 <br>
 
-<img src="docs/samples.png" alt="The three bundled sample wallpapers: Dusk Ocean, Northern Lights and Silk" width="100%">
+<img src="docs/samples.webp" alt="Bundled wallpapers: Event Horizon, Rainy Night Room, Sakura Rooftop, Alpine Dawn, Outrun, Summer Sky, Lantern Shrine, Firefly Forest" width="100%">
 
-<sub>The bundled samples — <i>Dusk Ocean</i>, <i>Northern Lights</i>, <i>Silk</i> — each drawn live by shaders and particles.</sub>
+<sub>Some of the wallpapers that ship with the app — see <a href="#bundled-wallpapers">Bundled wallpapers</a>.</sub>
 
 </div>
 
@@ -32,6 +32,7 @@ in an open package format you can write by hand, with an AI, or generate from an
 - [Install](#install) · [with an AI agent](#install-with-an-ai-agent) · [by hand](#install-by-hand)
 - [What it does](#what-it-does)
 - [Using it](#using-it)
+- [Bundled wallpapers](#bundled-wallpapers)
 - [Making wallpapers](#making-wallpapers)
 - [The `.macpaper` format](#the-macpaper-format)
 - [Command line & URL scheme](#command-line--url-scheme)
@@ -101,7 +102,11 @@ The app's Screen Saver page offers to update the installed screen saver when the
 | **Rotation** | Any choice can change on its own: every N minutes, or each time a clip ends — in order or shuffled, skipping options you exclude. |
 | **Displays** | The same wallpaper everywhere or a different one per display. Choose what each display keeps in view when its shape differs from the wallpaper's, or show the whole picture with bars. |
 | **Adjust** | Per wallpaper: speed, frame rate, brightness, contrast, saturation, warmth, parallax strength, volume. |
-| **Screen saver** | A real `.saver` that plays any wallpaper live with your settings — the current one, a chosen one, or a shuffle of your favorites or library. |
+| **Playlists** | Named sets of wallpapers that play one after another — each video once through (short loops for at least 3 minutes), or for a set time — in order or shuffled, on the desktop or in the screen saver. |
+| **Reactions** | A character can react to you: a short clip when you unlock, come back, click the desktop, at a set time or now and then, fading back into the loop. |
+| **Spanning** | One picture across all your displays, lined up the way they're arranged. |
+| **Screen saver** | A real `.saver` that plays any wallpaper live with your settings — the current one, a chosen one, a playlist, or a shuffle of your favorites or library. |
+| **Freeze guard** | Checks every few seconds that each display's wallpaper is still moving, and repairs one that isn't. |
 | **Sound** | Videos and scenes can carry audio (muted by default). Optionally, wallpapers react to the music playing on your Mac. |
 | **Captions** | A wallpaper can give a character lines that appear as they make an entrance, hold a pose or idle — in several languages. |
 | **Desktop picture** | Keeps a still frame of each wallpaper as the regular macOS desktop picture, so Mission Control, the login screen and the menu bar tint match. |
@@ -110,7 +115,8 @@ The app's Screen Saver page offers to update the installed screen saver when the
 
 - **Apply** — double-click a wallpaper, press <kbd>⌘</kbd><kbd>↩</kbd>, or use **Apply** in the inspector. With different wallpapers per display, Apply targets the display the MacPaper window is on; the arrow next to it picks another display or all of them.
 - **Customize** — the inspector has three tabs: **Controls** (the wallpaper's own knobs), **Adjust** (framing, motion, color, sound) and **Info** (details, validation, live frame rate).
-- **Menu bar** — pause, mute, shuffle, recent wallpapers and the wallpaper's quick controls, without opening the window.
+- **Playlists** — **New Playlist** in the sidebar, then pick wallpapers (search by tag, then **Select All Shown**). Drag to reorder, double-click to play from one. Picking a wallpaper by hand stops the playlist on that display.
+- **Menu bar** — pause, mute, shuffle (next, while a playlist plays), recent wallpapers and the wallpaper's quick controls, without opening the window.
 - **Undo** — applying, shuffling, deleting and resetting can all be undone with <kbd>⌘</kbd><kbd>Z</kbd>. Deleted packages go to the Trash, and Undo brings them back with their settings.
 
 | Shortcut | |
@@ -121,8 +127,27 @@ The app's Screen Saver page offers to update the installed screen saver when the
 | <kbd>⌘</kbd><kbd>⌫</kbd> in the grid | Move to Trash (undoable) |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> | Pause / resume all wallpapers |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | Shuffle |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>→</kbd> | Next wallpaper in the playing playlist |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>N</kbd> | New playlist |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>I</kbd> | Show / hide the inspector |
 | <kbd>⌘</kbd><kbd>N</kbd> · <kbd>⌘</kbd><kbd>O</kbd> | New wallpaper from a video or image · Import a package |
+
+## Bundled wallpapers
+
+Twelve wallpapers are installed on first launch, and new ones arrive with updates. Each is an ordinary package in [`Samples/`](Samples): open one to see how it's built.
+
+| Wallpaper | How it's made | What moves |
+|---|---|---|
+| Event Horizon | Ray-traced shader | Light bends around a black hole; the accretion disk orbits, brighter on the side spinning toward you |
+| Outrun | Shader | An endless synthwave drive; the sun and grid pulse with the bass |
+| Rainy Night Room | Anime cinemagraph | Rain only on the window glass, city lights flickering, steam from the cup |
+| Sakura Rooftop | Anime cinemagraph | Petals drifting, clouds churning around the moon, city lights flickering |
+| Summer Sky | Anime cinemagraph | Towering clouds churning, gusts rolling through the grass |
+| Lantern Shrine | Anime cinemagraph | Lanterns breathing, fireflies, stars twinkling over the torii |
+| Firefly Forest · Snow Cabin · Alpine Dawn | Still + depth map | Parallax depth with fireflies, snow, light rays and mist |
+| Dusk Ocean · Northern Lights · Silk | Shaders and particles | Procedural sea, aurora and silk |
+
+In a cinemagraph only masked parts of the picture move, driven by small shaders (billowing clouds, wind, rain on glass, flickering lights, steam), so they never repeat visibly. The scenes were made with GPT Image 2.5 and Nano Banana 2.1 (stills, depth maps and masks), then built into packages by hand. Like everything here, they're MIT-licensed.
 
 ## Making wallpapers
 
@@ -210,7 +235,9 @@ Running the binary with no arguments starts the app.
 | `macpaper://apply?id=<id or title>` | Apply a wallpaper |
 | `macpaper://set?control=<id>&value=<value>[&id=…]` | Set a control (choices accept an option's label) |
 | `macpaper://link?path=<folder>[&apply=false]` | Add a folder in place, with live reload |
-| `macpaper://next` · `pause` · `resume` · `toggle` | Shuffle and playback |
+| `macpaper://play?playlist=<name or id>` | Play a playlist |
+| `macpaper://next` · `pause` · `resume` · `toggle` | Next in the playlist (or shuffle) and playback |
+| `macpaper://react?event=<unlock\|wake\|return\|click\|time\|random>` | Play a reaction now |
 
 These work from Shortcuts, Raycast, Alfred, cron or a shell: `open "macpaper://next"`.
 

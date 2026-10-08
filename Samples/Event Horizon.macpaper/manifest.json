@@ -1,0 +1,135 @@
+{
+  "format": 1,
+  "id": "5B0E3C2A-7F14-4D8B-9A63-E2C41F7D0B91",
+  "title": "Event Horizon",
+  "author": "MacPaper",
+  "description": "A ray-traced black hole. Light bends around it, the accretion disk orbits faster near the horizon, and the side spinning toward you burns brighter. Move the pointer to look around it.",
+  "tags": [
+    "space",
+    "black hole",
+    "procedural"
+  ],
+  "canvas": {
+    "width": 3840,
+    "height": 2160
+  },
+  "focus": [
+    0.5,
+    0.5
+  ],
+  "fps": 30,
+  "drift": 0.5,
+  "layers": [
+    {
+      "id": "hole",
+      "type": "shader",
+      "src": "shaders/blackhole.metal",
+      "parallax": 0.0001,
+      "params": {
+        "tilt": {
+          "type": "float",
+          "value": 0.11
+        },
+        "distance": {
+          "type": "float",
+          "value": 24.0
+        },
+        "spin": {
+          "type": "float",
+          "value": 2.2
+        },
+        "inner": {
+          "type": "float",
+          "value": 2.6
+        },
+        "outer": {
+          "type": "float",
+          "value": 9.5
+        },
+        "hot": {
+          "type": "color",
+          "value": "#ffd29a"
+        },
+        "cool": {
+          "type": "color",
+          "value": "#ff7a2e"
+        },
+        "brightness": {
+          "type": "float",
+          "value": 1.0
+        },
+        "exposure": {
+          "type": "float",
+          "value": 1.25
+        }
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "palette",
+      "type": "choice",
+      "style": "segmented",
+      "label": "Disk",
+      "quick": true,
+      "options": [
+        {
+          "label": "Gargantua",
+          "value": "gargantua",
+          "set": {
+            "hole.params.hot": "#ffd29a",
+            "hole.params.cool": "#ff7a2e"
+          }
+        },
+        {
+          "label": "Quasar",
+          "value": "quasar",
+          "set": {
+            "hole.params.hot": "#bfe3ff",
+            "hole.params.cool": "#6a4cff"
+          }
+        },
+        {
+          "label": "Crimson",
+          "value": "crimson",
+          "set": {
+            "hole.params.hot": "#ffb3a1",
+            "hole.params.cool": "#c4122f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "spin",
+      "type": "slider",
+      "label": "Orbit speed",
+      "min": 0,
+      "max": 6,
+      "target": "hole.params.spin"
+    },
+    {
+      "id": "tilt",
+      "type": "slider",
+      "label": "View angle",
+      "min": 0.02,
+      "max": 0.6,
+      "target": "hole.params.tilt"
+    },
+    {
+      "id": "distance",
+      "type": "slider",
+      "label": "Distance",
+      "min": 12,
+      "max": 40,
+      "target": "hole.params.distance"
+    },
+    {
+      "id": "exposure",
+      "type": "slider",
+      "label": "Exposure",
+      "min": 0.6,
+      "max": 3,
+      "target": "hole.params.exposure"
+    }
+  ]
+}

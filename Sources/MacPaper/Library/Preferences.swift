@@ -46,12 +46,13 @@ enum ShuffleSource: String, CaseIterable, Identifiable {
 }
 
 enum ScreenSaverSource: String, CaseIterable, Identifiable {
-    case desktop, wallpaper, favorites, library
+    case desktop, wallpaper, playlist, favorites, library
     var id: String { rawValue }
     var title: String {
         switch self {
         case .desktop: "Current desktop wallpaper"
         case .wallpaper: "A specific wallpaper"
+        case .playlist: "A playlist"
         case .favorites: "Shuffle favorites"
         case .library: "Shuffle entire library"
         }
@@ -84,6 +85,7 @@ final class Preferences {
     var transitionSeconds: Double { didSet { defaults.set(transitionSeconds, forKey: "transitionSeconds") } }
     var saverSource: ScreenSaverSource { didSet { defaults.set(saverSource.rawValue, forKey: "saverSource") } }
     var saverWallpaperID: String { didSet { defaults.set(saverWallpaperID, forKey: "saverWallpaperID") } }
+    var saverPlaylistID: String { didSet { defaults.set(saverPlaylistID, forKey: "saverPlaylistID") } }
     var saverRotateMinutes: Int { didSet { defaults.set(saverRotateMinutes, forKey: "saverRotateMinutes") } }
     var saverSound: Bool { didSet { defaults.set(saverSound, forKey: "saverSound") } }
 
@@ -109,6 +111,7 @@ final class Preferences {
             "transitionSeconds": 0.35,
             "saverSource": ScreenSaverSource.desktop.rawValue,
             "saverWallpaperID": "",
+            "saverPlaylistID": "",
             "saverRotateMinutes": 10,
             "saverSound": false,
         ])
@@ -132,6 +135,7 @@ final class Preferences {
         transitionSeconds = defaults.double(forKey: "transitionSeconds")
         saverSource = ScreenSaverSource(rawValue: defaults.string(forKey: "saverSource") ?? "") ?? .desktop
         saverWallpaperID = defaults.string(forKey: "saverWallpaperID") ?? ""
+        saverPlaylistID = defaults.string(forKey: "saverPlaylistID") ?? ""
         saverRotateMinutes = defaults.integer(forKey: "saverRotateMinutes")
         saverSound = defaults.bool(forKey: "saverSound")
     }
@@ -142,6 +146,7 @@ final class Preferences {
 struct SaverPreferences {
     var source = ScreenSaverSource.desktop
     var wallpaperID: String?
+    var playlistID: UUID?
     var rotateMinutes = 10
     var sound = false
     var perDisplay = false
@@ -153,6 +158,7 @@ struct SaverPreferences {
         var s = SaverPreferences()
         if let v = (dict["saverSource"] as? String).flatMap(ScreenSaverSource.init) { s.source = v }
         if let v = dict["saverWallpaperID"] as? String, !v.isEmpty { s.wallpaperID = v }
+        if let v = (dict["saverPlaylistID"] as? String).flatMap(UUID.init(uuidString:)) { s.playlistID = v }
         if let v = dict["saverRotateMinutes"] as? Int { s.rotateMinutes = v }
         if let v = dict["saverSound"] as? Bool { s.sound = v }
         if let v = dict["perDisplay"] as? Bool { s.perDisplay = v }

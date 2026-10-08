@@ -77,6 +77,8 @@ struct FileCommands: Commands {
             Button("Import Package…") { model.chooseImport() }
                 .keyboardShortcut("o")
             Button("Add Folder to Edit in Place…") { model.chooseLinkFolder() }
+            Button("New Playlist") { model.newPlaylist() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             Menu("New from Template") {
                 Button("Shader") { model.newTemplate("shader") }
                 Button("Video") { model.newTemplate("video") }
@@ -125,6 +127,9 @@ struct WallpaperCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Shuffle") { model.shuffle() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Next in Playlist") { model.next() }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(!model.isPlayingPlaylist)
             Divider()
             Button(selected?.linked == true ? "Remove from Library" : "Move to Trash") { selected.map { model.delete($0) } }
                 .disabled(selected == nil)

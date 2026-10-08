@@ -1,0 +1,148 @@
+{
+  "format": 1,
+  "id": "7D3B1F86-24C9-4E5A-B817-6F0A2E9C4D13",
+  "title": "Sakura Rooftop",
+  "author": "MacPaper",
+  "description": "Cherry blossoms drift over a rooftop above a glittering city. Clouds slide past the moon and the city lights shimmer.",
+  "tags": [
+    "anime",
+    "night",
+    "city",
+    "sakura"
+  ],
+  "canvas": {
+    "width": 3840,
+    "height": 2160
+  },
+  "focus": [
+    0.5,
+    0.5
+  ],
+  "poster": "poster.heic",
+  "fps": 30,
+  "drift": 0.3,
+  "layers": [
+    {
+      "id": "plate",
+      "type": "image",
+      "src": "images/plate.heic",
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.014
+    },
+    {
+      "id": "clouds",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/sky.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.012
+        },
+        "scale": {
+          "type": "float",
+          "value": 2.2
+        },
+        "speed": {
+          "type": "float",
+          "value": 1.0
+        }
+      },
+      "src": "shaders/billow.metal"
+    },
+    {
+      "id": "city",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/city.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.5
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.7
+        },
+        "cell": {
+          "type": "float",
+          "value": 0.006
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.42
+        },
+        "glow": {
+          "type": "float",
+          "value": 0.4
+        },
+        "tint": {
+          "type": "color",
+          "value": "#ffd9f2"
+        },
+        "blink": {
+          "type": "float",
+          "value": 0.6
+        },
+        "points": {
+          "type": "float",
+          "value": 0.0
+        }
+      },
+      "src": "shaders/twinkle.metal"
+    },
+    {
+      "id": "petals",
+      "type": "particles",
+      "preset": "petals",
+      "count": 70,
+      "color": "#ffd3e4",
+      "colorEnd": "#ff8fb8",
+      "size": [
+        0.0035,
+        0.008
+      ],
+      "area": [
+        -0.15,
+        -0.1,
+        0.7,
+        0.45
+      ],
+      "wind": [
+        0.05,
+        0.012
+      ],
+      "turbulence": 0.05
+    }
+  ],
+  "controls": [
+    {
+      "id": "petals",
+      "type": "slider",
+      "label": "Petals",
+      "target": "petals.count",
+      "min": 0,
+      "max": 400
+    },
+    {
+      "id": "clouds",
+      "type": "slider",
+      "label": "Cloud speed",
+      "target": "clouds.params.speed",
+      "min": 0,
+      "max": 3,
+      "unit": "x"
+    },
+    {
+      "id": "lights",
+      "type": "slider",
+      "label": "City shimmer",
+      "target": "city.params.amount",
+      "min": 0,
+      "max": 1,
+      "unit": "%"
+    }
+  ]
+}

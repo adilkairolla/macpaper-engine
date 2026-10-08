@@ -1,0 +1,148 @@
+{
+  "format": 1,
+  "id": "4F8C2B67-D1A9-4E3B-A6F5-0C92E7B41D58",
+  "title": "Lantern Shrine",
+  "author": "MacPaper",
+  "description": "Stone steps to a forest shrine at night. The lanterns breathe and flicker, fireflies drift through the cedars and the stars twinkle.",
+  "tags": [
+    "anime",
+    "night",
+    "japan",
+    "fireflies"
+  ],
+  "canvas": {
+    "width": 3840,
+    "height": 2160
+  },
+  "focus": [
+    0.5,
+    0.5
+  ],
+  "poster": "poster.heic",
+  "fps": 30,
+  "drift": 0.2,
+  "layers": [
+    {
+      "id": "plate",
+      "type": "image",
+      "src": "images/plate.heic",
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.012
+    },
+    {
+      "id": "lanterns",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/lanterns.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.35
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.5
+        },
+        "cell": {
+          "type": "float",
+          "value": 0.05
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.35
+        },
+        "glow": {
+          "type": "float",
+          "value": 0.6
+        },
+        "tint": {
+          "type": "color",
+          "value": "#ffb35c"
+        },
+        "blink": {
+          "type": "float",
+          "value": 0.0
+        },
+        "points": {
+          "type": "float",
+          "value": 0.0
+        }
+      },
+      "src": "shaders/twinkle.metal"
+    },
+    {
+      "id": "stars",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/sky.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.8
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.8
+        },
+        "cell": {
+          "type": "float",
+          "value": 0.003
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.35
+        },
+        "glow": {
+          "type": "float",
+          "value": 0.0
+        },
+        "tint": {
+          "type": "color",
+          "value": "#cfe0ff"
+        },
+        "blink": {
+          "type": "float",
+          "value": 0.0
+        },
+        "points": {
+          "type": "float",
+          "value": 1.0
+        }
+      },
+      "src": "shaders/twinkle.metal"
+    },
+    {
+      "id": "fireflies",
+      "type": "particles",
+      "preset": "fireflies",
+      "count": 160,
+      "area": [
+        0.0,
+        0.3,
+        1.0,
+        0.7
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "id": "fireflies",
+      "type": "slider",
+      "label": "Fireflies",
+      "target": "fireflies.count",
+      "min": 0,
+      "max": 400
+    },
+    {
+      "id": "flicker",
+      "type": "slider",
+      "label": "Lantern flicker",
+      "target": "lanterns.params.amount",
+      "min": 0,
+      "max": 1,
+      "unit": "%"
+    }
+  ]
+}

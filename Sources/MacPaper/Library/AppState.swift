@@ -37,6 +37,49 @@ struct CycleSetting: Codable, Hashable {
     }
 }
 
+/// A named set of wallpapers that the desktop or the screen saver plays one after another.
+struct Playlist: Codable, Hashable, Identifiable {
+    /// How long a wallpaper without video stays when the playlist plays each one once through.
+    static let stillMinutes = 5
+    /// Once through, a short loop repeats until this many seconds have passed, then moves on at a loop point.
+    static let onceThroughMinimum: TimeInterval = 180
+
+    var id = UUID()
+    var name: String
+    var wallpaperIDs: [String] = []
+    var shuffle = false
+    /// 0 plays each wallpaper once through: until its video ends (repeating a short loop for at least
+    /// `onceThroughMinimum`), or `stillMinutes` when it has none.
+    var minutes = 0
+
+    init(name: String, wallpaperIDs: [String] = []) {
+        self.name = name
+        self.wallpaperIDs = wallpaperIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        name = (try? c.decode(String.self, forKey: .name)) ?? "Playlist"
+        wallpaperIDs = (try? c.decode([String].self, forKey: .wallpaperIDs)) ?? []
+        shuffle = (try? c.decode(Bool.self, forKey: .shuffle)) ?? false
+        minutes = (try? c.decode(Int.self, forKey: .minutes)) ?? 0
+    }
+
+    /// The wallpaper to play after `current`, skipping ones not in `available`; with no current, where it starts.
+    func next(after current: String?, available: Set<String>) -> String? {
+        let ids = wallpaperIDs.filter(available.contains)
+        guard !ids.isEmpty else { return nil }
+        if shuffle { return ids.filter { $0 != current }.randomElement() ?? ids[0] }
+        let start = current.flatMap(wallpaperIDs.firstIndex(of:)) ?? -1
+        for step in 1...wallpaperIDs.count {
+            let id = wallpaperIDs[(start + step) % wallpaperIDs.count]
+            if available.contains(id) { return id }
+        }
+        return ids[0]
+    }
+}
+
 struct Preset: Codable, Hashable, Identifiable {
     var id = UUID()
     var name: String
@@ -49,6 +92,10 @@ struct WallpaperSettings: Codable, Equatable {
     var focus: [String: [Double]] = [:]
     /// Fit the whole canvas inside the display, with bars, instead of filling it.
     var showAll = false
+    /// One picture across every display, laid out like the displays are arranged.
+    var span = false
+    /// Plays the wallpaper's reaction clips when something happens.
+    var reactions = true
     var speed: Double = 1
     var fpsCap: Int = 0
     var brightness: Double = 1
@@ -69,6 +116,8 @@ struct WallpaperSettings: Codable, Equatable {
         values = (try? c.decode([String: JSONValue].self, forKey: .values)) ?? d.values
         focus = (try? c.decode([String: [Double]].self, forKey: .focus)) ?? d.focus
         showAll = (try? c.decode(Bool.self, forKey: .showAll)) ?? d.showAll
+        span = (try? c.decode(Bool.self, forKey: .span)) ?? d.span
+        reactions = (try? c.decode(Bool.self, forKey: .reactions)) ?? d.reactions
         speed = (try? c.decode(Double.self, forKey: .speed)) ?? d.speed
         fpsCap = (try? c.decode(Int.self, forKey: .fpsCap)) ?? d.fpsCap
         brightness = (try? c.decode(Double.self, forKey: .brightness)) ?? d.brightness
@@ -87,7 +136,7 @@ struct WallpaperSettings: Codable, Equatable {
     }
 
     var hasDisplayChanges: Bool {
-        speed != 1 || fpsCap != 0 || brightness != 1 || contrast != 1 || saturation != 1 || warmth != 0 || parallax != 1 || !focus.isEmpty || showAll
+        speed != 1 || fpsCap != 0 || brightness != 1 || contrast != 1 || saturation != 1 || warmth != 0 || parallax != 1 || !focus.isEmpty || showAll || span
     }
 
     /// The package's suggested rotations with the user's own choices on top; "Never" is stored, so it wins.
@@ -119,6 +168,9 @@ struct AppState: Codable {
     var recents: [String] = []
     var linked: [String] = []
     var added: [String: Date] = [:]
+    var playlists: [Playlist] = []
+    /// The playlist playing on each display, keyed like `assignments`; an empty id marks a display that stopped one.
+    var playing: [String: String] = [:]
 
     init() {}
 
@@ -130,12 +182,24 @@ struct AppState: Codable {
         recents = (try? c.decode([String].self, forKey: .recents)) ?? []
         linked = (try? c.decode([String].self, forKey: .linked)) ?? []
         added = (try? c.decode([String: Date].self, forKey: .added)) ?? [:]
+        playlists = (try? c.decode([Playlist].self, forKey: .playlists)) ?? []
+        playing = (try? c.decode([String: String].self, forKey: .playing)) ?? [:]
     }
 
     /// An empty id marks a display the user cleared, so it doesn't fall back to the all-displays choice.
     func wallpaperID(forDisplay key: String, perDisplay: Bool) -> String? {
         let id = perDisplay ? (assignments[key] ?? assignments[Self.allDisplaysKey]) : assignments[Self.allDisplaysKey]
         return id?.isEmpty == false ? id : nil
+    }
+
+    func playlist(forDisplay key: String, perDisplay: Bool) -> Playlist? {
+        let id = perDisplay ? (playing[key] ?? playing[Self.allDisplaysKey]) : playing[Self.allDisplaysKey]
+        guard let id, !id.isEmpty else { return nil }
+        return playlists.first { $0.id.uuidString == id }
+    }
+
+    func playlist(_ id: UUID?) -> Playlist? {
+        playlists.first { $0.id == id }
     }
 
     func settings(_ id: String) -> WallpaperSettings {

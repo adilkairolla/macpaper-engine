@@ -58,6 +58,9 @@ private struct DisplayCard: View {
                 Text("\(Int(display.pixelSize.width)) × \(Int(display.pixelSize.height))").font(.callout).foregroundStyle(.secondary)
                 if let wp {
                     Text(wp.title).font(.callout.weight(.medium)).padding(.top, 6)
+                    if let playlist = model.playlist(onDisplay: display.id) {
+                        Label("Playlist “\(playlist.name)”", systemImage: "rectangle.stack").font(.caption).foregroundStyle(.secondary)
+                    }
                     if display.paused {
                         Label(model.desktop.pauseReason ?? "Paused while covered by windows", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                     } else if let stats {
@@ -66,6 +69,12 @@ private struct DisplayCard: View {
                     }
                 } else {
                     Text("No wallpaper").font(.callout).foregroundStyle(.secondary).padding(.top, 6)
+                }
+                if display.recoveries > 0, let last = display.lastRecovery {
+                    Label("Repaired \(display.recoveries == 1 ? "a freeze" : "\(display.recoveries) freezes") since MacPaper started · last at \(last)", systemImage: "wrench.and.screwdriver")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .help("MacPaper checks every few seconds that each display’s wallpaper is still moving and repairs it if not. Details are in the log under Info › Develop.")
                 }
                 Spacer()
                 HStack {
@@ -78,6 +87,17 @@ private struct DisplayCard: View {
                         }
                     }
                     .fixedSize()
+                    if !model.playlists.isEmpty {
+                        Menu("Play Playlist") {
+                            ForEach(model.playlists) { p in
+                                Toggle(p.name.isEmpty ? "Untitled Playlist" : p.name, isOn: Binding(get: { model.playlist(onDisplay: display.id)?.id == p.id }, set: { on in
+                                    if on { model.play(p, to: model.desktop.displays.count > 1 ? .display(display.id) : .everywhere) } else { model.stop(p) }
+                                }))
+                                .disabled(p.wallpaperIDs.isEmpty)
+                            }
+                        }
+                        .fixedSize()
+                    }
                     if wp != nil {
                         Button("Remove Wallpaper") { model.clear(display: display.id) }
                             .help("Show the macOS desktop picture on this display instead")
@@ -129,6 +149,18 @@ struct ScreenSaverPage: View {
                     Picker("Wallpaper", selection: $prefs.saverWallpaperID) {
                         Text("None").tag("")
                         ForEach(model.sortedWallpapers) { Text($0.title).tag($0.id) }
+                    }
+                }
+                if prefs.saverSource == .playlist {
+                    Picker("Playlist", selection: $prefs.saverPlaylistID) {
+                        Text("None").tag("")
+                        ForEach(model.playlists) { Text($0.name.isEmpty ? "Untitled Playlist" : $0.name).tag($0.id.uuidString) }
+                    }
+                    if let playlist = UUID(uuidString: prefs.saverPlaylistID).flatMap(model.playlist) {
+                        Text("Plays in the playlist’s order, starting from the wallpaper on your desktop when it’s in the playlist. \(PlaylistPace.detail(playlist))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if model.playlists.isEmpty {
+                        Text("Make a playlist in the sidebar first.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if prefs.saverSource == .favorites || prefs.saverSource == .library {
@@ -271,7 +303,8 @@ struct MenuBarView: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(current.title).font(.headline).foregroundStyle(.white).lineLimit(1)
-                        Text(model.desktop.pauseReason ?? "Playing").font(.caption).foregroundStyle(.white.opacity(0.75))
+                        Text(model.desktop.pauseReason ?? (model.desktop.displays.first.flatMap { model.playlist(onDisplay: $0.id) }.map { "Playing “\($0.name)”" } ?? "Playing"))
+                            .font(.caption).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                     }
                     .padding(12)
                 }
@@ -289,7 +322,11 @@ struct MenuBarView: View {
                     let audible = model.isAudible(current.id)
                     control(audible ? "Mute" : "Unmute", audible ? "speaker.wave.2.fill" : "speaker.slash.fill") { model.toggleSound(current.id) }
                 }
-                control("Shuffle", "shuffle") { model.shuffle() }
+                if model.isPlayingPlaylist {
+                    control("Next", "forward.fill") { model.next() }
+                } else {
+                    control("Shuffle", "shuffle") { model.shuffle() }
+                }
             }
 
             let recents = model.recentWallpapers.prefix(6)

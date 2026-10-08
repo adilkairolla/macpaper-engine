@@ -157,6 +157,61 @@ struct CaptionsSpec: Hashable, Sendable {
     }
 }
 
+enum ReactionTrigger: String, Hashable, Sendable, CaseIterable {
+    case unlock, wake, comeBack = "return", click, time, random
+}
+
+/// Short clips a video layer plays once when something happens, then goes back to where its loop was.
+struct ReactionsSpec: Hashable, Sendable {
+    struct Rule: Hashable, Sendable {
+        var trigger: ReactionTrigger
+        var clips: [String]
+        var cooldown: Double?
+        /// `return`: how long you must have been away, in seconds.
+        var idle: Double
+        /// `random`: the average gap between reactions, in seconds.
+        var every: Double
+        /// `time`: minutes after midnight.
+        var at: [Int]
+    }
+
+    static let defaultCooldown = 30.0
+    static let defaultIdle = 300.0
+
+    var video: String
+    var crossfade: Double
+    var cooldown: Double
+    var rules: [Rule]
+
+    func rule(for trigger: ReactionTrigger) -> Rule? { rules.first { $0.trigger == trigger } }
+
+    static func decode(_ r: JSONValue?) -> ReactionsSpec? {
+        guard let r, let video = r["video"]?.string, r["enabled"]?.bool != false else { return nil }
+        let rules = (r["events"]?.array ?? []).compactMap { e -> Rule? in
+            guard let trigger = e["on"]?.string.flatMap(ReactionTrigger.init(rawValue:)) else { return nil }
+            let clips = (e["clips"]?.array ?? []).compactMap(\.string) + [e["clip"]?.string].compactMap { $0 }
+            guard !clips.isEmpty else { return nil }
+            return Rule(
+                trigger: trigger, clips: clips, cooldown: e["cooldown"]?.number.map { max($0, 0) },
+                idle: max(e["idle"]?.number ?? defaultIdle, 10), every: max(e["every"]?.number ?? 600, 30),
+                at: ((e["at"]?.array ?? [e["at"]].compactMap { $0 }).compactMap { $0.string.flatMap(minutesAfterMidnight) })
+            )
+        }
+        guard !rules.isEmpty else { return nil }
+        return ReactionsSpec(
+            video: video, crossfade: min(max(r["crossfade"]?.number ?? 0.8, 0.1), 5),
+            cooldown: max(r["cooldown"]?.number ?? defaultCooldown, 0), rules: rules
+        )
+    }
+
+    /// "23:30" → 1410.
+    static func minutesAfterMidnight(_ s: String) -> Int? {
+        let parts = s.split(separator: ":").map { Int($0) }
+        guard parts.count == 2, let h = parts[0], let m = parts[1], (0..<24).contains(h), (0..<60).contains(m) else { return nil }
+        return h * 60 + m
+    }
+}
+
 struct ResolvedScene: Hashable, Sendable {
     var canvas: CGSize
     var fps: Int
@@ -164,6 +219,7 @@ struct ResolvedScene: Hashable, Sendable {
     var drift: Double
     var audio: AudioSpec?
     var captions: CaptionsSpec?
+    var reactions: ReactionsSpec?
     var layers: [LayerSpec]
 
     /// One full-canvas video and nothing else: AVPlayerLayer can show it with no GPU composition.
@@ -277,6 +333,7 @@ enum SceneResolver {
             drift: min(max(scene["drift"]?.number ?? 0.3, 0), 1),
             audio: audio,
             captions: CaptionsSpec.decode(scene["captions"]),
+            reactions: ReactionsSpec.decode(scene["reactions"]),
             layers: layers.compactMap(LayerDecoder.decode)
         )
     }
@@ -300,7 +357,7 @@ enum PropertyPath {
         switch parts[0] {
         case "scene":
             scene[parts[1]] = value
-        case "audio", "captions":
+        case "audio", "captions", "reactions":
             var section = scene[parts[0]]?.object ?? [:]
             section[parts[1]] = value
             scene[parts[0]] = .object(section)
@@ -329,6 +386,7 @@ enum PropertyPath {
         case "scene": return manifest.raw[parts[1]]
         case "audio": return manifest.raw["audio"]?[parts[1]]
         case "captions": return manifest.raw["captions"]?[parts[1]] ?? (parts[1] == "lang" ? "auto" : nil)
+        case "reactions": return manifest.raw["reactions"]?[parts[1]] ?? (parts[1] == "enabled" ? true : nil)
         default:
             guard let layer = manifest.layers.first(where: { $0["id"]?.string == parts[0] }) else { return nil }
             if parts.count == 3, parts[1] == "params" { return layer["params"]?[parts[2]]?["value"] }

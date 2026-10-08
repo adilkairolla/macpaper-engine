@@ -8,6 +8,8 @@ struct DisplayInfo: Identifiable, Hashable {
     let pixelSize: CGSize
     var wallpaperID: String?
     var paused: Bool
+    var recoveries = 0
+    var lastRecovery: String?
 }
 
 /// One borderless window per screen at desktop level, each hosting a WallpaperView.
@@ -17,7 +19,7 @@ final class DesktopManager {
     @MainActor
     private final class Slot {
         let key: String
-        let screen: NSScreen
+        var screen: NSScreen
         let window: DesktopWindow
         let stage = NSView()
         var view: WallpaperView?
@@ -26,6 +28,11 @@ final class DesktopManager {
         var occluded = false
         var paused = false
         var observer: NSObjectProtocol?
+        var strikes = 0
+        var recoveries: [Date] = []
+        var totalRecoveries = 0
+        var lastRecovery: String?
+        var gaveUp = false
 
         init(screen: NSScreen) {
             key = screen.stableKey
@@ -47,6 +54,10 @@ final class DesktopManager {
     @ObservationIgnored private var lastMouse = CFAbsoluteTimeGetCurrent()
     @ObservationIgnored private var screenObserver: NSObjectProtocol?
     @ObservationIgnored private var coverageTimer: Timer?
+    @ObservationIgnored private var healthTimer: Timer?
+    @ObservationIgnored private var clickMonitor: Any?
+    @ObservationIgnored private var idleTimer: Timer?
+    @ObservationIgnored private var peakIdle: Double = 0
     @ObservationIgnored var assignment: ((String) -> Wallpaper?)?
     @ObservationIgnored var values: ((Wallpaper) -> [String: JSONValue])?
     @ObservationIgnored var settings: ((Wallpaper, String) -> RenderSettings)?
@@ -62,18 +73,31 @@ final class DesktopManager {
                 SessionStore.shared.all.forEach { $0.spectrum = spectrum }
             }
         }
+        monitor.onReactionEvent = { [weak self] trigger in
+            // Unlocking and waking resume playback a moment later; a paused wallpaper doesn't react.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                MainActor.assumeIsolated { self?.react(trigger) }
+            }
+        }
         trackPolicyInputs()
     }
 
     // MARK: Screens
 
+    /// NSScreen compares equal by display, so a slot could keep an object from before the reconfiguration
+    /// and place its window at the old frame, off its screen. Slots are rebound to the current objects.
     func rebuildScreens() {
         let screens = NSScreen.screens
-        for slot in slots where !screens.contains(where: { $0 == slot.screen }) {
+        let current = Dictionary(screens.map { ($0.stableKey, $0) }, uniquingKeysWith: { first, _ in first })
+        for slot in slots where current[slot.key] == nil {
             teardown(slot)
         }
-        slots.removeAll { slot in !screens.contains { $0 == slot.screen } }
-        for screen in screens where !slots.contains(where: { $0.screen == screen }) {
+        slots.removeAll { current[$0.key] == nil }
+        for screen in screens {
+            if let slot = slots.first(where: { $0.key == screen.stableKey }) {
+                slot.screen = screen
+                continue
+            }
             let slot = Slot(screen: screen)
             slot.observer = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: slot.window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateCoverage() }
@@ -95,7 +119,8 @@ final class DesktopManager {
                 show(wp, in: slot)
             }
         }
-        publish()
+        // Spanning depends on what every other display shows, so the unchanged ones re-read their settings too.
+        refreshSettings()
     }
 
     func reload(wallpaperID: String) {
@@ -245,6 +270,8 @@ final class DesktopManager {
         updateAudioCapture()
         updateCoverageTimer(globalPause: globalPause)
         updatePointerTracking()
+        updateHealthTimer()
+        updateReactionInputs()
     }
 
     /// Coverage only matters while something could play, so the window-list poll stops otherwise.
@@ -336,10 +363,141 @@ final class DesktopManager {
                 size: slot.screen.frame.size,
                 pixelSize: CGSize(width: slot.screen.frame.width * slot.screen.backingScaleFactor, height: slot.screen.frame.height * slot.screen.backingScaleFactor),
                 wallpaperID: slot.wallpaperID,
-                paused: slot.paused
+                paused: slot.paused,
+                recoveries: slot.totalRecoveries,
+                lastRecovery: slot.lastRecovery
             )
         }
         if next != displays { displays = next }
+    }
+
+    // MARK: Freeze guard
+
+    private func updateHealthTimer() {
+        let wanted = slots.contains { $0.view != nil }
+        if wanted, healthTimer == nil {
+            healthTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkHealth() }
+            }
+            healthTimer?.tolerance = 1
+        } else if !wanted, let timer = healthTimer {
+            timer.invalidate()
+            healthTimer = nil
+        }
+    }
+
+    /// Repairs a display whose wallpaper should be moving but isn't: a window left at a stale position, a video
+    /// player that stopped, or a surface that stopped drawing. Two failed checks in a row count as a freeze, and a
+    /// display that keeps freezing is left alone after three repairs in ten minutes so it can't loop.
+    private func checkHealth() {
+        let now = Date()
+        for slot in slots where slot.view != nil {
+            if let current = NSScreen.screens.first(where: { $0.stableKey == slot.key }) {
+                slot.screen = current
+                if !Self.same(slot.window.frame, current.frame) {
+                    recovered(slot, "its window was at \(slot.window.frame), off the display at \(current.frame); moved it back", at: now)
+                    slot.window.setFrame(current.frame, display: true)
+                    slot.window.orderFrontRegardless()
+                    continue
+                }
+            }
+            guard !slot.paused, let view = slot.view, let stall = view.stall() else {
+                slot.strikes = 0
+                continue
+            }
+            slot.strikes += 1
+            guard slot.strikes >= 2 else { continue }
+            slot.strikes = 0
+            slot.recoveries.removeAll { now.timeIntervalSince($0) > 600 }
+            guard slot.recoveries.count < 3 else {
+                if !slot.gaveUp {
+                    slot.gaveUp = true
+                    Log.shared.write("Freeze guard: \(slot.screen.localizedName) is still frozen (\(stall.rawValue)) after three repairs in ten minutes; leaving it")
+                }
+                continue
+            }
+            slot.recoveries.append(now)
+            if stall == .clock, view.session.restartVideos() {
+                recovered(slot, "\(stall.rawValue); restarted the video where it was", at: now)
+            } else {
+                recovered(slot, "\(stall.rawValue); rebuilt the wallpaper", at: now)
+                show(assignment?(slot.key) ?? view.wallpaper, in: slot)
+            }
+        }
+    }
+
+    private func recovered(_ slot: Slot, _ what: String, at date: Date) {
+        Log.shared.write("Freeze guard: \(slot.screen.localizedName) [\(slot.view?.wallpaper.title ?? "none")]: \(what)")
+        slot.totalRecoveries += 1
+        slot.gaveUp = false
+        slot.lastRecovery = "\(date.formatted(date: .omitted, time: .shortened)): \(what.components(separatedBy: ";").first ?? what)"
+        publish()
+    }
+
+    private static func same(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 1 && abs(a.minY - b.minY) < 1 && abs(a.width - b.width) < 1 && abs(a.height - b.height) < 1
+    }
+
+    // MARK: Reactions
+
+    /// Lets the wallpaper on `display` (or every display) react; displays showing one wallpaper share its session,
+    /// so it reacts once.
+    func react(_ trigger: ReactionTrigger, display: String? = nil, away: Double? = nil, force: Bool = false) {
+        var done: Set<ObjectIdentifier> = []
+        for slot in slots where display == nil || slot.key == display {
+            guard force || !slot.paused, let session = slot.view?.session, done.insert(ObjectIdentifier(session)).inserted else { continue }
+            session.react(trigger, away: away, force: force)
+        }
+    }
+
+    private func showsReaction(to trigger: ReactionTrigger) -> Bool {
+        slots.contains { slot in
+            guard let session = slot.view?.session else { return false }
+            return session.reactionsEnabled && session.scene.reactions?.rule(for: trigger) != nil
+        }
+    }
+
+    /// The click monitor and the idle poll exist only while a wallpaper on screen uses them.
+    private func updateReactionInputs() {
+        let clicks = showsReaction(to: .click) && pauseReason == nil
+        if clicks, clickMonitor == nil {
+            clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+                MainActor.assumeIsolated { self?.desktopClicked(at: NSEvent.mouseLocation) }
+            }
+        } else if !clicks, let m = clickMonitor {
+            NSEvent.removeMonitor(m)
+            clickMonitor = nil
+        }
+        // Being away usually means locked or asleep, so the poll keeps running while wallpapers are paused.
+        let away = showsReaction(to: .comeBack)
+        if away, idleTimer == nil {
+            idleTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pollIdle() }
+            }
+            idleTimer?.tolerance = 2
+        } else if !away, let t = idleTimer {
+            t.invalidate()
+            idleTimer = nil
+            peakIdle = 0
+        }
+    }
+
+    private func pollIdle() {
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        if idle < 4, peakIdle >= 10 {
+            let away = peakIdle
+            peakIdle = 0
+            react(.comeBack, away: away)
+        } else {
+            peakIdle = max(peakIdle, idle)
+        }
+    }
+
+    private func desktopClicked(at point: NSPoint) {
+        guard let slot = slots.first(where: { NSMouseInRect(point, $0.screen.frame, false) }), !slot.paused else { return }
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        guard DesktopHitTest.isDesktopExposed(at: CGPoint(x: point.x, y: primaryHeight - point.y)) else { return }
+        react(.click, display: slot.key)
     }
 
     // MARK: Pointer

@@ -114,6 +114,10 @@ Keep `format: 1` backward compatible: new fields are optional with defaults that
 | Settings that affect rendering | `AppModel.renderSettings` → `RenderSettings` |
 | Control value → layer property | `SceneResolver`, `PropertyPath` |
 | Rotation of choice controls | `WallpaperSettings.cycles(for:)`, `AppModel.rescheduleCycles`, `clipEnded` |
+| Playlists | `Playlist` in `AppState.swift`, `AppModel.play`/`advancePlaylist`, the saver's `pick()` |
+| Reactions | `ReactionsSpec` in `Scene.swift`, `SceneSession.react`, event inputs in `DesktopManager.updateReactionInputs` |
+| Spanning | `Span.of(_:)` in `DesktopWindow.swift`, `SceneEncoder.region(…span:)`, `DesktopPicture.syncSpanned` |
+| Freeze guard | `DesktopManager.checkHealth`, `WallpaperView.stall()`, each `SceneContent.stall` |
 | Captions | `SceneSession.say`, `CaptionLayer` |
 | Import / delete / restore | `LibraryStore.importPackage`, `remove`, `restore` |
 | CLI | `App/CLI.swift` · URL scheme: `AppModel.handle(_:)` |

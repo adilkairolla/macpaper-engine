@@ -14,6 +14,8 @@ final class SystemMonitor {
     private(set) var screenSaverRunning = false
     private(set) var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
+    /// Moments a wallpaper's character can react to.
+    @ObservationIgnored var onReactionEvent: ((ReactionTrigger) -> Void)?
     @ObservationIgnored private var powerSource: CFRunLoopSource?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -36,7 +38,10 @@ final class SystemMonitor {
             MainActor.assumeIsolated { self?.screensAsleep = true }
         })
         observers.append(ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.screensAsleep = false }
+            MainActor.assumeIsolated {
+                self?.screensAsleep = false
+                self?.onReactionEvent?(.wake)
+            }
         })
         observers.append(ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateFrontmost() }
@@ -46,7 +51,10 @@ final class SystemMonitor {
             MainActor.assumeIsolated { self?.screenLocked = true }
         })
         observers.append(dnc.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.screenLocked = false }
+            MainActor.assumeIsolated {
+                self?.screenLocked = false
+                self?.onReactionEvent?(.unlock)
+            }
         })
         observers.append(dnc.addObserver(forName: .init("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.screenSaverRunning = true }

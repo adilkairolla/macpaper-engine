@@ -32,6 +32,21 @@ extension NSScreen {
     }
 }
 
+extension Span {
+    /// `screen`'s place among every connected screen as they're arranged; nil with a single screen.
+    @MainActor
+    static func of(_ screen: NSScreen, among screens: [NSScreen] = NSScreen.screens) -> Span? {
+        guard screens.count > 1 else { return nil }
+        let all = screens.reduce(CGRect.null) { $0.union($1.frame) }
+        let f = screen.frame
+        guard all.width > 0, all.height > 0 else { return nil }
+        return Span(total: all.size, rect: CGRect(
+            x: (f.minX - all.minX) / all.width, y: (all.maxY - f.maxY) / all.height,
+            width: f.width / all.width, height: f.height / all.height
+        ))
+    }
+}
+
 enum DesktopHitTest {
     /// True when nothing but the desktop (Finder's icon layer or our wallpaper) is under `point`, in CG (top-left) coordinates.
     static func isDesktopExposed(at point: CGPoint) -> Bool {

@@ -1,0 +1,121 @@
+{
+  "format": 1,
+  "id": "B1E4C7A2-96F0-4D38-8C25-3A7E1F0D9B64",
+  "title": "Summer Sky",
+  "author": "MacPaper",
+  "description": "A hand-painted summer meadow by the sea. Towering clouds billow and gusts roll through the grass.",
+  "tags": [
+    "anime",
+    "summer",
+    "clouds",
+    "meadow"
+  ],
+  "canvas": {
+    "width": 3840,
+    "height": 2160
+  },
+  "focus": [
+    0.5,
+    0.5
+  ],
+  "poster": "poster.heic",
+  "fps": 30,
+  "drift": 0.3,
+  "layers": [
+    {
+      "id": "plate",
+      "type": "image",
+      "src": "images/plate.heic",
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.012
+    },
+    {
+      "id": "clouds",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/sky.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.012
+        },
+        "scale": {
+          "type": "float",
+          "value": 2.2
+        },
+        "speed": {
+          "type": "float",
+          "value": 1.0
+        }
+      },
+      "src": "shaders/billow.metal"
+    },
+    {
+      "id": "wind",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/grass.png"
+      },
+      "params": {
+        "strength": {
+          "type": "float",
+          "value": 1.0
+        },
+        "speed": {
+          "type": "float",
+          "value": 1.0
+        },
+        "gust": {
+          "type": "float",
+          "value": 4.0
+        },
+        "anchor": {
+          "type": "float",
+          "value": 0.6
+        }
+      },
+      "src": "shaders/wind.metal"
+    },
+    {
+      "id": "seeds",
+      "type": "particles",
+      "preset": "dust",
+      "count": 60,
+      "color": "#fffbe8dd",
+      "wind": [
+        0.04,
+        -0.005
+      ],
+      "size": [
+        0.0015,
+        0.004
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "id": "wind",
+      "type": "slider",
+      "label": "Wind",
+      "target": "wind.params.strength",
+      "min": 0,
+      "max": 2.5
+    },
+    {
+      "id": "clouds",
+      "type": "slider",
+      "label": "Cloud speed",
+      "target": "clouds.params.speed",
+      "min": 0,
+      "max": 3,
+      "unit": "x"
+    },
+    {
+      "id": "seeds",
+      "type": "toggle",
+      "label": "Floating seeds",
+      "target": "seeds.visible"
+    }
+  ]
+}

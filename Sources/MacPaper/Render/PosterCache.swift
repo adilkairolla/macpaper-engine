@@ -20,16 +20,16 @@ final class PosterCache {
         cache.totalCostLimit = max(96 << 20, displayBytes * 3)
     }
 
-    private func key(_ w: Wallpaper, _ size: CGSize, _ focus: SIMD2<Double>) -> String {
-        "\(w.id)@\(w.stamp.timeIntervalSince1970)|\(Int(size.width))x\(Int(size.height))|\(focus.x),\(focus.y)"
+    private func key(_ w: Wallpaper, _ size: CGSize, _ focus: SIMD2<Double>, _ span: Span?) -> String {
+        "\(w.id)@\(w.stamp.timeIntervalSince1970)|\(Int(size.width))x\(Int(size.height))|\(focus.x),\(focus.y)|\(span.map { "\($0.total)\($0.rect)" } ?? "")"
     }
 
-    func cached(_ wallpaper: Wallpaper, size: CGSize, focus: SIMD2<Double>) -> CGImage? {
-        cache.object(forKey: key(wallpaper, size, focus) as NSString)?.image
+    func cached(_ wallpaper: Wallpaper, size: CGSize, focus: SIMD2<Double>, span: Span? = nil) -> CGImage? {
+        cache.object(forKey: key(wallpaper, size, focus, span) as NSString)?.image
     }
 
-    func image(_ wallpaper: Wallpaper, size: CGSize, focus: SIMD2<Double>, completion: @escaping (CGImage?) -> Void) {
-        let k = key(wallpaper, size, focus)
+    func image(_ wallpaper: Wallpaper, size: CGSize, focus: SIMD2<Double>, span: Span? = nil, completion: @escaping (CGImage?) -> Void) {
+        let k = key(wallpaper, size, focus, span)
         if let hit = cache.object(forKey: k as NSString) {
             completion(hit.image)
             return
@@ -44,7 +44,7 @@ final class PosterCache {
             return
         }
         queue.async {
-            let image = Self.decode(url, size: size, focus: focus)
+            let image = Self.decode(url, size: size, focus: focus, span: span)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self.finish(k, image) }
             }
@@ -70,12 +70,12 @@ final class PosterCache {
         for s in sizes { image(wallpaper, size: s, focus: focus(s)) { _ in } }
     }
 
-    nonisolated static func decode(_ url: URL, size: CGSize, focus: SIMD2<Double>) -> CGImage? {
+    nonisolated static func decode(_ url: URL, size: CGSize, focus: SIMD2<Double>, span: Span? = nil) -> CGImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
               let pw = props[kCGImagePropertyPixelWidth] as? Int, let ph = props[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
-        let region = SceneEncoder.region(canvas: CGSize(width: pw, height: ph), output: size, focus: focus)
+        let region = SceneEncoder.region(canvas: CGSize(width: pw, height: ph), output: size, focus: focus, span: span)
         let need = max(size.width / (Double(region.z) * Double(pw)), size.height / (Double(region.w) * Double(ph)))
         let maxSide = Int((Double(max(pw, ph)) * min(need, 1)).rounded(.up))
         let options: [CFString: Any] = [

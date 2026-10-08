@@ -1,5 +1,12 @@
 import Foundation
 
+/// Where one display sits in a picture spread across several: the arrangement's whole size in points, and this
+/// display's part of it (0…1, top-left origin).
+struct Span: Hashable, Sendable {
+    var total: CGSize
+    var rect: CGRect
+}
+
 /// How one display shows one wallpaper. Everything here belongs to the app, never to the package.
 struct RenderSettings: Equatable {
     var focus: SIMD2<Double>?
@@ -14,12 +21,14 @@ struct RenderSettings: Equatable {
     var muted = true
     var allowVideoFastPath = true
     var maxFPS: Int = 120
+    var span: Span?
+    var reactions = true
 
     static func == (a: RenderSettings, b: RenderSettings) -> Bool {
         a.focus == b.focus && a.showAll == b.showAll && a.speed == b.speed && a.fpsCap == b.fpsCap && a.grade == b.grade
             && a.parallaxStrength == b.parallaxStrength && a.pointerParallax == b.pointerParallax
             && a.renderScale == b.renderScale && a.volume == b.volume && a.muted == b.muted
-            && a.allowVideoFastPath == b.allowVideoFastPath && a.maxFPS == b.maxFPS
+            && a.allowVideoFastPath == b.allowVideoFastPath && a.maxFPS == b.maxFPS && a.span == b.span && a.reactions == b.reactions
     }
 }
 

@@ -54,6 +54,7 @@ Paths in the manifest are relative to the package and must stay inside it.
 | `drift` | 0…1. Slow automatic parallax sway so depth layers move even without a mouse (screen saver). |
 | `audio` | Optional looping sound. Video layers may also carry their own audio. |
 | `captions` | Optional lines a character says over a video layer — see [Captions](#captions). |
+| `reactions` | Optional short clips a video layer plays when something happens — see [Reactions](#reactions). |
 
 Colors are `"#rrggbb"`, `"#rrggbbaa"` or `[r, g, b, a]` with 0…1 components.
 
@@ -266,7 +267,7 @@ Property paths are `layerId.property`:
 | image | `src`, `depth`, `depthStrength` |
 | shader | `params.<name>`, `textures.<name>` |
 | particles | every field in the particles table |
-| scene | `scene.drift`, `scene.background`, `audio.volume`, `captions.lang`, `captions.idleEvery` |
+| scene | `scene.drift`, `scene.background`, `audio.volume`, `captions.lang`, `captions.idleEvery`, `reactions.enabled`, `reactions.cooldown`, `reactions.crossfade` |
 
 ## Captions
 
@@ -297,8 +298,43 @@ holding the pose, and while it holds, an `idle` line comes every `idleEvery` sec
 control at `captions.lang` to let people pick. Captions are drawn by the app over the live wallpaper,
 so `render` and posters don't include them.
 
-The app adds its own controls to every wallpaper: framing (fill the display, or show all of the canvas
-with bars), crop focus per display, speed, frame‑rate cap,
+## Reactions
+
+A character can react to the person at the Mac. Each event plays one short clip on a video layer,
+fades back to the loop where it left off, and doesn't repeat for `cooldown` seconds:
+
+```json
+"reactions": {
+  "video": "base",
+  "crossfade": 0.8,
+  "cooldown": 30,
+  "events": [
+    { "on": "unlock", "clips": ["media/react-wave.mov"] },
+    { "on": "return", "idle": 300, "clips": ["media/react-welcome.mov"] },
+    { "on": "click",  "clips": ["media/react-look.mov", "media/react-wink.mov"], "cooldown": 20 },
+    { "on": "time",   "at": ["23:30"], "clips": ["media/react-yawn.mov"] },
+    { "on": "random", "every": 600, "clips": ["media/react-stretch.mov"] }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `video` | The video layer that plays the clips. |
+| `crossfade` | Seconds to fade into a clip and back to the loop; default 0.8. |
+| `cooldown` | Seconds after a reaction before another can start; default 30. An event can set its own. |
+| `enabled` | `false` turns them all off; point a toggle at `reactions.enabled` to let people choose. |
+| `on` | `unlock` (the Mac is unlocked), `wake` (the display wakes), `return` (input again after `idle` seconds without any, default 300), `click` (a click on the visible desktop), `time` (`at`: `"HH:MM"` or a list), `random` (about every `every` seconds, default 600). |
+| `clips` | One or more clips; they take turns. |
+
+A reaction only plays while the wallpaper is playing and in view. Make each clip start and end close to
+the loop's look — generated from the same still, with the camera locked — so the fades are short and
+invisible. Captions work for reaction clips too: key their lines by the clip's path. People can turn
+reactions off per wallpaper and try each one from the inspector; `macpaper://react?event=click` plays one
+from Shortcuts.
+
+The app adds its own controls to every wallpaper: framing (fill the display, show all of the canvas
+with bars, or span one picture across every display), crop focus per display, speed, frame‑rate cap,
 brightness, contrast, saturation, warmth, parallax strength, volume and mute, plus auto‑cycling any
 choice control on a timer or each time the video ends, through all options or a chosen few.
 
@@ -320,7 +356,8 @@ MacPaper.app/Contents/MacOS/MacPaper bench    <pkg> [--size 5120x2880] [--frames
 
 `macpaper://apply?id=<uuid>`, `macpaper://set?control=outfit&value=holiday[&id=<uuid>]`,
 `macpaper://link?path=/path/to/Thing.macpaper` (links the folder in place and applies it — edits then show up live),
-`macpaper://next`, `macpaper://pause`, `macpaper://resume`, `macpaper://toggle`.
+`macpaper://play?playlist=<name or id>`, `macpaper://next` (the next wallpaper of a playing playlist, or a shuffle),
+`macpaper://react?event=<on>`, `macpaper://pause`, `macpaper://resume`, `macpaper://toggle`.
 Use them from Shortcuts with *Open URL*.
 
 ## Making wallpapers with AI

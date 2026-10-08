@@ -15,6 +15,16 @@ final class VideoLayerView: NSView, SceneContent {
     private var playerLayers: [AVPlayerLayer] = []
     private var readyObservation: NSKeyValueObservation?
     private var firstFrameShown = false
+    private var attachedAt = CACurrentMediaTime()
+    private static let all = NSHashTable<VideoLayerView>.weakObjects()
+
+    var stall: Stall? {
+        guard session.isRunning, let pl = playerLayers.last, let player = pl.player else { return nil }
+        let sharing = Self.all.allObjects.contains { other in other !== self && other.playerLayers.contains { $0.player === player } }
+        if sharing { return .sharedPlayer }
+        if !pl.isReadyForDisplay, CACurrentMediaTime() - attachedAt > 6 { return .layer }
+        return nil
+    }
 
     init(session: SceneSession, layerID: String, settings: RenderSettings, frame: NSRect) {
         self.session = session
@@ -24,6 +34,7 @@ final class VideoLayerView: NSView, SceneContent {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
+        Self.all.add(self)
         attachCurrentPlayer()
         session.observe(self) { [weak self] in self?.attachCurrentPlayer() }
     }
@@ -42,6 +53,7 @@ final class VideoLayerView: NSView, SceneContent {
         if !playerLayers.isEmpty, session.crossfade(for: layerID) > 0 { pl.opacity = 0 }
         layer?.addSublayer(pl)
         playerLayers.append(pl)
+        attachedAt = CACurrentMediaTime()
         readyObservation = pl.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self, weak pl] layer, _ in
             guard layer.isReadyForDisplay else { return }
             DispatchQueue.main.async {
@@ -54,6 +66,8 @@ final class VideoLayerView: NSView, SceneContent {
     }
 
     private func becameReady(_ pl: AVPlayerLayer) {
+        // The callback is async: a newer clip's layer may have been attached since, and must not be retired.
+        guard pl === playerLayers.last else { return }
         let old = playerLayers.filter { $0 !== pl }
         let retire = {
             for layer in old {
@@ -89,7 +103,7 @@ final class VideoLayerView: NSView, SceneContent {
     private func videoFrame() -> CGRect {
         guard bounds.width >= 1, bounds.height >= 1 else { return bounds }
         let canvas = session.scene.canvas
-        let region = SceneEncoder.region(canvas: canvas, output: bounds.size, focus: settings.focus ?? session.wallpaper.manifest.focus)
+        let region = SceneEncoder.region(canvas: canvas, output: bounds.size, focus: settings.focus ?? session.wallpaper.manifest.focus, span: settings.span)
         let w = bounds.width / CGFloat(region.z)
         let h = bounds.height / CGFloat(region.w)
         let x = -CGFloat(region.x) * w
@@ -116,6 +130,7 @@ final class VideoLayerView: NSView, SceneContent {
 
     func tearDown() {
         readyObservation = nil
+        Self.all.remove(self)
         session.unobserve(self)
         for case let pl as AVPlayerLayer in layer?.sublayers ?? [] {
             pl.player = nil

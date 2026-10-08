@@ -1,7 +1,32 @@
 import SwiftUI
 
-enum SidebarItem: String, Hashable {
+enum SidebarItem: Hashable, RawRepresentable {
     case library, favorites, create, displays, screenSaver
+    case playlist(UUID)
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "library": self = .library
+        case "favorites": self = .favorites
+        case "create": self = .create
+        case "displays": self = .displays
+        case "screenSaver": self = .screenSaver
+        default:
+            guard rawValue.hasPrefix("playlist:"), let id = UUID(uuidString: String(rawValue.dropFirst(9))) else { return nil }
+            self = .playlist(id)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .library: "library"
+        case .favorites: "favorites"
+        case .create: "create"
+        case .displays: "displays"
+        case .screenSaver: "screenSaver"
+        case .playlist(let id): "playlist:\(id.uuidString)"
+        }
+    }
 }
 
 struct RootView: View {
@@ -29,6 +54,29 @@ struct RootView: View {
                     }
                     .tag(SidebarItem.create)
                 }
+                Section("Playlists") {
+                    ForEach(model.playlists) { p in
+                        HStack {
+                            Label(p.name.isEmpty ? "Untitled Playlist" : p.name, systemImage: "rectangle.stack")
+                            if model.isPlaying(p) {
+                                Spacer()
+                                Image(systemName: "play.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("Playing")
+                            }
+                        }
+                        .tag(SidebarItem.playlist(p.id))
+                        .contextMenu { PlaylistMenuItems(playlist: p) }
+                    }
+                    Button {
+                        model.newPlaylist()
+                    } label: {
+                        Label("New Playlist", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
                 Section("Device") {
                     Label("Displays", systemImage: "display.2").tag(SidebarItem.displays)
                     Label("Screen Saver", systemImage: "moon.stars").tag(SidebarItem.screenSaver)
@@ -49,6 +97,7 @@ struct RootView: View {
                 case .create: CreateView()
                 case .displays: DisplaysView()
                 case .screenSaver: ScreenSaverPage()
+                case .playlist(let id): PlaylistView(playlistID: id).id(id)
                 }
             }
             .frame(minWidth: 560, minHeight: 480)
@@ -71,6 +120,9 @@ struct RootView: View {
             guard let page else { return }
             selection = page
             model.requestedPage = nil
+        }
+        .onChange(of: model.playlists.map(\.id)) { _, ids in
+            if case .playlist(let id) = selection, !ids.contains(id) { selection = .library }
         }
         .onAppear { model.undoManager = undoManager }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }

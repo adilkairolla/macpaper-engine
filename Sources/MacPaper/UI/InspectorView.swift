@@ -46,6 +46,7 @@ struct InspectorView: View {
 
     private var previewSettings: RenderSettings {
         var r = model.renderSettings(wallpaper, display: model.desktop.displays.first?.id ?? AppState.allDisplaysKey)
+        r.span = nil
         r.muted = true
         r.allowVideoFastPath = false
         r.renderScale = 1
@@ -182,6 +183,10 @@ private struct ControlsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let reactions = ReactionsSpec.decode(wallpaper.manifest.raw["reactions"]) {
+                ReactionsSection(wallpaper: wallpaper, spec: reactions)
+                Divider()
+            }
             if wallpaper.manifest.allControls.isEmpty {
                 Text("This wallpaper has no controls of its own. Speed, color, framing and sound are under Adjust.")
                     .font(.callout)
@@ -241,7 +246,18 @@ private struct AdjustTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                if s.showAll {
+                .disabled(s.span && model.desktop.displays.count > 1)
+                if model.desktop.displays.count > 1 {
+                    Toggle("Span across displays", isOn: binding(\.span))
+                        .toggleStyle(.switch)
+                    if s.span {
+                        Text("One picture across all your displays, lined up the way they’re arranged in System Settings › Displays. It spans while every display shows this wallpaper.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if s.span && model.desktop.displays.count > 1 {
+                    spanCropPicker(s)
+                } else if s.showAll {
                     Text("The whole picture stays in view, with bars where your display's shape differs from the wallpaper's.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -316,6 +332,21 @@ private struct AdjustTab: View {
             model.update(wallpaper.id) { $0.focus[focusDisplay] = [p.x, p.y] }
         }
         Text("Drag to choose what stays in view when your display's shape differs from the wallpaper's.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    /// Spanning crops for the whole arrangement at once, so there is one focus point and no per-display choice.
+    @ViewBuilder
+    private func spanCropPicker(_ s: WallpaperSettings) -> some View {
+        let all = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        PointPad(
+            wallpaper: wallpaper,
+            point: s.focus(for: AppState.allDisplaysKey) ?? wallpaper.manifest.focus,
+            showsCrop: all.isNull ? CGSize(width: 32, height: 10) : all.size
+        ) { p in
+            model.update(wallpaper.id) { $0.focus[AppState.allDisplaysKey] = [p.x, p.y] }
+        }
+        Text("Drag to choose which part of the picture your displays show together.")
             .font(.caption).foregroundStyle(.secondary)
     }
 
@@ -405,6 +436,10 @@ private struct InfoTab: View {
                 }
                 Button("Copy AI Guide") { AIGuide.copy(for: wallpaper) }
                     .help("Copies the format guide plus this wallpaper's manifest, ready to paste into an AI chat")
+                if !active.isEmpty, wallpaper.hasVideo {
+                    Button("Test the Freeze Guard") { model.simulateFreeze(wallpaper) }
+                        .help("Stops this wallpaper's video without telling MacPaper; the freeze guard should notice and restart it within about ten seconds")
+                }
                 Text(wallpaper.linked ? "Edited in place: changes to these files show up live." : "Tip: File › Add Folder to Edit in Place shows changes to a wallpaper’s files live.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -461,10 +496,58 @@ struct WallpaperMenuItems: View {
             }
         }
         Button("Use as Screen Saver") { model.useAsScreenSaver(wallpaper) }.disabled(!canApply)
+        AddToPlaylistMenu(wallpaper: wallpaper)
         Divider()
         Button(model.isFavorite(wallpaper.id) ? "Remove from Favorites" : "Add to Favorites") { model.toggleFavorite(wallpaper.id) }
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([wallpaper.url]) }
         Divider()
         Button(wallpaper.linked ? "Remove from Library" : "Move to Trash", role: .destructive) { model.delete(wallpaper) }
+    }
+}
+
+private struct ReactionsSection: View {
+    @Environment(AppModel.self) private var model
+    let wallpaper: Wallpaper
+    let spec: ReactionsSpec
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "Reactions")
+            Toggle("React to you", isOn: Binding(
+                get: { model.settings(wallpaper.id).reactions },
+                set: { v in model.update(wallpaper.id) { $0.reactions = v } }
+            ))
+            .toggleStyle(.switch)
+            ForEach(spec.rules, id: \.trigger) { rule in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Self.title(rule)).font(.callout)
+                        Text(rule.clips.count == 1 ? "1 clip" : "\(rule.clips.count) clips, taking turns")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Try") { model.tryReaction(rule.trigger, of: wallpaper) }
+                        .help("Play this reaction now")
+                }
+            }
+            .disabled(!model.settings(wallpaper.id).reactions)
+        }
+        .controlSize(.small)
+    }
+
+    static func title(_ rule: ReactionsSpec.Rule) -> String {
+        switch rule.trigger {
+        case .unlock: "When you unlock your Mac"
+        case .wake: "When the display wakes"
+        case .comeBack: "When you come back after \(Self.duration(rule.idle))"
+        case .click: "When you click the desktop"
+        case .time:
+            "At " + rule.at.map { String(format: "%d:%02d", $0 / 60, $0 % 60) }.formatted(.list(type: .and))
+        case .random: "Now and then, about every \(Self.duration(rule.every))"
+        }
+    }
+
+    private static func duration(_ seconds: Double) -> String {
+        seconds < 90 ? "\(Int(seconds)) seconds" : seconds < 5400 ? "\(Int((seconds / 60).rounded())) minutes" : "\(Int((seconds / 3600).rounded())) hours"
     }
 }

@@ -46,10 +46,13 @@ final class VideoSource {
     /// Muted clips decode no audio at all: a merely muted player still runs Core Audio and clocks every frame off it.
     private var audioEnabled = true
     private var trackObservations: [NSKeyValueObservation] = []
+    /// Where playback starts instead of the beginning, e.g. a loop resuming after a reaction clip.
+    private var startAt: Double?
 
-    init(url: URL, spec: VideoSpec, intro: Bool = false) {
+    init(url: URL, spec: VideoSpec, intro: Bool = false, startAt: Double? = nil) {
         self.url = url
         self.spec = spec
+        self.startAt = startAt.flatMap { $0 > 0.05 ? $0 : nil }
         loops = spec.crossfade <= 0
         inIntro = intro && spec.freeze != nil
         player.isMuted = true
@@ -109,6 +112,20 @@ final class VideoSource {
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.reachedEnd() } }
             }
         }
+        if let startAt {
+            // Holding the rate at zero until the seek lands keeps the clip's first frame from flashing.
+            var waited = 0
+            while player.currentItem?.status != .readyToPlay, waited < 500 {
+                try? await Task.sleep(for: .milliseconds(10))
+                if Task.isCancelled { return }
+                waited += 1
+            }
+            let t = CMTime(seconds: duration > 0 ? startAt.truncatingRemainder(dividingBy: duration) : startAt, preferredTimescale: 600)
+            await player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
+            self.startAt = nil
+            applySpec()
+            return
+        }
         applySpec()
         // A paused player decodes nothing until it seeks, and a seek issued before the item is ready is dropped.
         var waited = 0
@@ -140,6 +157,12 @@ final class VideoSource {
     }
 
     var isReady: Bool { latest != nil || failed != nil }
+
+    /// Seconds into the clip.
+    var position: Double {
+        let t = player.currentTime().seconds
+        return t.isFinite ? t : 0
+    }
 
     /// The picture is changing on its own: playing, or playing its intro towards the hold point.
     var isMoving: Bool { playing && inIntro }
@@ -192,7 +215,7 @@ final class VideoSource {
     }
 
     private func applySpec() {
-        guard hasLoaded else { return }
+        guard hasLoaded, startAt == nil else { return }
         if inIntro, let freeze = spec.freeze, duration > 0 {
             armIntro(at: min(freeze, 0.999) * duration)
             return

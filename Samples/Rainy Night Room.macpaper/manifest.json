@@ -1,0 +1,174 @@
+{
+  "format": 1,
+  "id": "2C7A9E41-58D3-4B6F-A0E2-9D41C3B7F865",
+  "title": "Rainy Night Room",
+  "author": "MacPaper",
+  "description": "A warm room above a neon city on a rainy night. Drops slide down the glass, rain falls beyond it, the city lights flicker, and steam curls from the cup.",
+  "tags": [
+    "anime",
+    "lofi",
+    "rain",
+    "night",
+    "city"
+  ],
+  "canvas": {
+    "width": 3840,
+    "height": 2160
+  },
+  "focus": [
+    0.5,
+    0.5
+  ],
+  "poster": "poster.heic",
+  "fps": 30,
+  "drift": 0.15,
+  "layers": [
+    {
+      "id": "plate",
+      "type": "image",
+      "src": "images/plate.heic",
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.006
+    },
+    {
+      "id": "city",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/city.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.45
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.6
+        },
+        "cell": {
+          "type": "float",
+          "value": 0.008
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.45
+        },
+        "glow": {
+          "type": "float",
+          "value": 0.35
+        },
+        "tint": {
+          "type": "color",
+          "value": "#ffffff"
+        },
+        "blink": {
+          "type": "float",
+          "value": 0.0
+        },
+        "points": {
+          "type": "float",
+          "value": 0.0
+        }
+      },
+      "src": "shaders/twinkle.metal"
+    },
+    {
+      "id": "rain",
+      "type": "shader",
+      "textures": {
+        "mask": "masks/glass.png"
+      },
+      "params": {
+        "amount": {
+          "type": "float",
+          "value": 0.32
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.7
+        },
+        "size": {
+          "type": "float",
+          "value": 0.95
+        },
+        "blur": {
+          "type": "float",
+          "value": 0.08
+        },
+        "streaks": {
+          "type": "float",
+          "value": 0.4
+        }
+      },
+      "src": "shaders/window-rain.metal"
+    },
+    {
+      "id": "steam",
+      "type": "shader",
+      "params": {
+        "origin": {
+          "type": "float2",
+          "value": [
+            0.2174,
+            0.583
+          ]
+        },
+        "width": {
+          "type": "float",
+          "value": 0.016
+        },
+        "height": {
+          "type": "float",
+          "value": 0.2
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.6
+        },
+        "opacity": {
+          "type": "float",
+          "value": 0.55
+        },
+        "color": {
+          "type": "color",
+          "value": "#f4ece4"
+        }
+      },
+      "src": "shaders/steam.metal"
+    }
+  ],
+  "controls": [
+    {
+      "id": "rain",
+      "type": "slider",
+      "label": "Rain",
+      "target": "rain.params.amount",
+      "min": 0,
+      "max": 1,
+      "unit": "%"
+    },
+    {
+      "id": "streaks",
+      "type": "slider",
+      "label": "Rain outside",
+      "target": "rain.params.streaks",
+      "min": 0,
+      "max": 0.6
+    },
+    {
+      "id": "lights",
+      "type": "slider",
+      "label": "City lights",
+      "target": "city.params.amount",
+      "min": 0,
+      "max": 1,
+      "unit": "%"
+    },
+    {
+      "id": "steam",
+      "type": "toggle",
+      "label": "Steam",
+      "target": "steam.visible"
+    }
+  ]
+}

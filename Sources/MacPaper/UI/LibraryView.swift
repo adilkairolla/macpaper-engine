@@ -444,7 +444,8 @@ struct NowPlayingHero: View {
     }
 
     private func hero(_ wallpaper: Wallpaper, display: DisplayInfo?) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        let playlist = (display ?? model.desktop.displays.first).flatMap { model.playlist(onDisplay: $0.id) }
+        return ZStack(alignment: .bottomLeading) {
             PosterThumbnail(wallpaper: wallpaper, maxSide: 1600)
                 .frame(height: 230)
                 .frame(maxWidth: .infinity)
@@ -466,6 +467,11 @@ struct NowPlayingHero: View {
                         .lineLimit(1)
                     HStack(spacing: 8) {
                         KindBadge(kind: wallpaper.kind)
+                        if let playlist {
+                            Label(playlist.name.isEmpty ? "Untitled Playlist" : playlist.name, systemImage: "rectangle.stack")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
                         if let reason = model.desktop.pauseReason {
                             Label(reason, systemImage: "pause.circle")
                                 .font(.caption.weight(.medium))
@@ -475,6 +481,14 @@ struct NowPlayingHero: View {
                 }
                 Spacer()
                 HStack(spacing: 10) {
+                    if playlist != nil {
+                        Button {
+                            model.next()
+                        } label: {
+                            Label("Next", systemImage: "forward.fill").labelStyle(.iconOnly)
+                        }
+                        .help("Next wallpaper in the playlist")
+                    }
                     Button {
                         model.desktop.userPaused.toggle()
                     } label: {

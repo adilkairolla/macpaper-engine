@@ -24,6 +24,8 @@ final class WallpaperView: NSView {
     private var imageHandlers: [() -> Void] = []
     private var tornDown = false
     private var posterKey = ""
+    private var clockSample: Double?
+    private var playingSince = CACurrentMediaTime()
 
     var stats: FrameStats { content?.stats ?? FrameStats() }
 
@@ -47,6 +49,7 @@ final class WallpaperView: NSView {
         session.observe(self) { [weak self] in self?.sessionChanged() }
         applyAudio()
         session.setSpeed(settings.speed)
+        session.reactionsEnabled = settings.reactions
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -62,7 +65,7 @@ final class WallpaperView: NSView {
     /// Where the wallpaper draws: the whole view, or the canvas fitted inside it with bars around.
     private var contentRect: CGRect {
         let canvas = session.scene.canvas
-        guard settings.showAll, canvas.width > 0, canvas.height > 0, bounds.width > 1, bounds.height > 1 else { return bounds }
+        guard settings.showAll, settings.span == nil, canvas.width > 0, canvas.height > 0, bounds.width > 1, bounds.height > 1 else { return bounds }
         let s = min(bounds.width / canvas.width, bounds.height / canvas.height)
         let w = (canvas.width * s).rounded(), h = (canvas.height * s).rounded()
         return CGRect(x: ((bounds.width - w) / 2).rounded(), y: ((bounds.height - h) / 2).rounded(), width: w, height: h)
@@ -73,15 +76,16 @@ final class WallpaperView: NSView {
     private func loadPoster(synchronousIfCached: Bool) {
         guard bounds.width > 1, !live else { return }
         let size = pixelSize
-        let key = "\(size)|\(focus)|\(settings.showAll)"
+        let span = settings.span
+        let key = "\(size)|\(focus)|\(settings.showAll)|\(span.map { "\($0.rect)" } ?? "")"
         guard key != posterKey else { return }
         posterKey = key
-        if let hit = PosterCache.shared.cached(wallpaper, size: size, focus: focus) {
+        if let hit = PosterCache.shared.cached(wallpaper, size: size, focus: focus, span: span) {
             posterLayer.contents = hit
             fireImageHandlers()
             return
         }
-        PosterCache.shared.image(wallpaper, size: size, focus: focus) { [weak self] image in
+        PosterCache.shared.image(wallpaper, size: size, focus: focus, span: span) { [weak self] image in
             guard let self, !self.live, self.posterKey == key else { return }
             if let image { self.posterLayer.contents = image }
             self.fireImageHandlers()
@@ -250,10 +254,11 @@ final class WallpaperView: NSView {
         self.settings = settings
         applyAudio()
         session.setSpeed(settings.speed)
+        session.reactionsEnabled = settings.reactions
         content?.apply(settings)
         incoming?.apply(settings)
-        if old.showAll != settings.showAll { needsLayout = true }
-        if old.focus != settings.focus || old.showAll != settings.showAll { posterKey = ""; loadPoster(synchronousIfCached: true) }
+        if old.showAll != settings.showAll || old.span != settings.span { needsLayout = true }
+        if old.focus != settings.focus || old.showAll != settings.showAll || old.span != settings.span { posterKey = ""; loadPoster(synchronousIfCached: true) }
         if (wantsVideoPath != nil) != contentIsVideoPath { rebuildContent() }
     }
 
@@ -270,10 +275,32 @@ final class WallpaperView: NSView {
         let paused = requestedPause || windowHidden
         guard paused != self.paused else { return }
         self.paused = paused
+        if !paused { playingSince = CACurrentMediaTime() }
+        clockSample = nil
         applyAudio()
         updateCaption()
         content?.setPaused(paused)
         incoming?.setPaused(paused)
+    }
+
+    /// Why this surface looks frozen while it should be playing. The video clock is compared with the previous
+    /// call, so the result means something only when called a few seconds apart.
+    func stall() -> Stall? {
+        guard !paused, !tornDown else {
+            clockSample = nil
+            return nil
+        }
+        guard live, let content else {
+            return CACurrentMediaTime() - playingSince > 15 ? .frames : nil
+        }
+        if session.expectsVideoMotion {
+            let clock = session.videoClock
+            defer { clockSample = clock }
+            if clockSample == clock { return .clock }
+        } else {
+            clockSample = nil
+        }
+        return content.stall
     }
 
     /// Pointer position in the view, normalized with a top-left origin; nil when it left.

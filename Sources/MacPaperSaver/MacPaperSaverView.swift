@@ -15,6 +15,7 @@ final class MacPaperSaverView: ScreenSaverView {
     private var clipObserver: NSObjectProtocol?
     /// The shown wallpaper's control values as the saver's own cycling moves them; never written back.
     private var values: [String: JSONValue] = [:]
+    private var shownAt = Date()
     private var stopObserver: NSObjectProtocol?
     private var sleepObservers: [NSObjectProtocol] = []
     private var paused = true
@@ -35,7 +36,6 @@ final class MacPaperSaverView: ScreenSaverView {
         // Occlusion reads hidden for the whole run on macOS 26, so start/stop and display sleep decide playback.
         paused = false
         show(pick())
-        if !isPreview { scheduleRotation() }
         if sleepObservers.isEmpty {
             let center = NSWorkspace.shared.notificationCenter
             sleepObservers = [
@@ -83,10 +83,28 @@ final class MacPaperSaverView: ScreenSaverView {
             return desktop ?? library.first
         case .wallpaper:
             return wallpaper(prefs.wallpaperID) ?? desktop ?? library.first
+        case .playlist:
+            guard let playlist else { return desktop ?? library.first }
+            let available = Set(library.map(\.id))
+            // The first pick continues from the desktop, so the saver doesn't open on the same wallpaper every time.
+            if current == nil, let desktop, playlist.wallpaperIDs.contains(desktop.id) { return desktop }
+            return wallpaper(playlist.next(after: current?.wallpaper.id, available: available)) ?? desktop ?? library.first
         case .favorites, .library:
             let favorites = library.filter { state.favorites.contains($0.id) }
             let pool = prefs.source == .favorites && !favorites.isEmpty ? favorites : library
             return pool.filter { $0.id != current?.wallpaper.id }.randomElement() ?? pool.first ?? desktop
+        }
+    }
+
+    private var playlist: Playlist? { state.playlist(prefs.playlistID) }
+
+    /// Only sources that put the same wallpaper on every screen at the same moment can share one picture.
+    private var spansEveryScreen: Bool {
+        switch prefs.source {
+        case .wallpaper: true
+        case .desktop: !prefs.perDisplay
+        case .playlist: playlist?.shuffle == false
+        case .favorites, .library: false
         }
     }
 
@@ -95,6 +113,11 @@ final class MacPaperSaverView: ScreenSaverView {
         var r = RenderSettings()
         r.focus = s.focus(for: screenKey)
         r.showAll = s.showAll
+        r.reactions = s.reactions
+        if s.span, !isPreview, spansEveryScreen, let screen = window?.screen, let span = Span.of(screen) {
+            r.span = span
+            r.focus = s.focus(for: AppState.allDisplaysKey)
+        }
         r.speed = s.speed
         r.fpsCap = isPreview ? 15 : (s.fpsCap > 0 ? s.fpsCap : prefs.frameRateCap)
         r.grade = s.grade
@@ -118,11 +141,13 @@ final class MacPaperSaverView: ScreenSaverView {
             old.removeFromSuperview()
         }
         outgoing = current
+        shownAt = Date()
         if outgoing != nil { view.alphaValue = 0 }
         addSubview(view)
         current = view
         view.setPaused(paused)
         scheduleCycles(for: wp)
+        if !isPreview { scheduleRotation(for: wp) }
         view.whenVisible { [weak self, weak view] in
             guard let self, let view, self.current === view, let old = self.outgoing else { return }
             self.outgoing = nil
@@ -138,10 +163,20 @@ final class MacPaperSaverView: ScreenSaverView {
         }
     }
 
-    private func scheduleRotation() {
+    /// A playlist played once through moves on when the video ends (see `clipEnded`); the rest run on a timer.
+    private func scheduleRotation(for wp: Wallpaper) {
         rotateTimer?.invalidate()
-        guard prefs.source == .favorites || prefs.source == .library, prefs.rotateMinutes > 0 else { return }
-        rotateTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(prefs.rotateMinutes * 60), repeats: true) { [weak self] _ in
+        rotateTimer = nil
+        let minutes: Int
+        switch prefs.source {
+        case .favorites, .library: minutes = prefs.rotateMinutes
+        case .playlist:
+            guard let playlist else { return }
+            minutes = playlist.minutes > 0 ? playlist.minutes : (wp.hasVideo ? 0 : Playlist.stillMinutes)
+        default: return
+        }
+        guard minutes > 0 else { return }
+        rotateTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(minutes * 60), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.show(self.pick())
@@ -164,6 +199,10 @@ final class MacPaperSaverView: ScreenSaverView {
         guard !isPreview, let current, current.session === session else { return }
         for (controlID, cycle) in state.settings(current.wallpaper.id).cycles(for: current.wallpaper.manifest) where cycle.afterClip {
             advance(controlID, cycle: cycle)
+        }
+        if prefs.source == .playlist, playlist?.minutes == 0, !paused,
+           Date().timeIntervalSince(shownAt) >= Playlist.onceThroughMinimum - 1 {
+            show(pick())
         }
     }
 

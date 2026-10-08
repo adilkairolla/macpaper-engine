@@ -36,6 +36,8 @@ struct Wallpaper: Identifiable, Hashable, Sendable {
         return .scene
     }
 
+    var hasVideo: Bool { manifest.layers.contains { $0["type"]?.string == "video" } }
+
     init(id: String, url: URL, manifest: Manifest, stamp: Date, linked: Bool) {
         self.id = id
         self.url = url
@@ -81,12 +83,17 @@ struct Wallpaper: Identifiable, Hashable, Sendable {
         return posterURL
     }
 
-    /// Resolves a manifest path, refusing anything that escapes the package.
+    /// Resolves a manifest path, refusing anything that escapes the package. The check is lexical: comparing
+    /// standardized file URLs breaks for files that don't exist yet, since macOS only strips /private from real paths.
     func file(_ relative: String) -> URL? {
-        let resolved = url.appendingPathComponent(relative).standardizedFileURL
-        let root = url.standardizedFileURL.path
-        guard resolved.path.hasPrefix(root + "/") else { return nil }
-        return resolved
+        guard !relative.hasPrefix("/") else { return nil }
+        var depth = 0
+        for part in relative.split(separator: "/", omittingEmptySubsequences: true) where part != "." {
+            depth += part == ".." ? -1 : 1
+            if depth < 0 { return nil }
+        }
+        guard depth > 0 else { return nil }
+        return url.appendingPathComponent(relative).standardized
     }
 
     static func == (a: Wallpaper, b: Wallpaper) -> Bool {

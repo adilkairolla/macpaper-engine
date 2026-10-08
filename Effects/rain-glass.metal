@@ -59,7 +59,10 @@ float4 effect(Pixel px, Frame frame, Params params, Inputs in) {
     float hx = rg_field(q + float2(e, 0.0), t, params.amount, params.size).x;
     float hy = rg_field(q + float2(0.0, e), t, params.amount, params.size).x;
     float2 normal = float2(hx - c.x, hy - c.x) / e;
-    float2 screen = px.screen - normal * 0.012;
+    // The bump is steep at a drop's rim; capping the slope keeps refraction to a small, flipped view
+    // of what's behind the drop instead of a sample from across the screen.
+    normal *= min(1.0, 60.0 / max(length(normal), 1e-4));
+    float2 screen = px.screen - normal * 0.0009;
     float3 sharp = in.source.sample(in.linear, screen).rgb;
     float3 misted = float3(0.0);
     float radius = params.blur * 0.004;

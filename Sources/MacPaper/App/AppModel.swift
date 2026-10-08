@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ImageIO
 import Observation
 import ServiceManagement
 
@@ -17,6 +18,9 @@ final class AppModel {
 
     @ObservationIgnored private var shuffleTimer: Timer?
     @ObservationIgnored private var cycleTimers: [String: Timer] = [:]
+    @ObservationIgnored private var playlistTimers: [String: Timer] = [:]
+    /// Which wallpaper each playback key shows and since when, for the once-through minimum.
+    @ObservationIgnored private var playlistShown: [String: (id: String, since: Date)] = [:]
     @ObservationIgnored private var saveWork: DispatchWorkItem?
 
     init() {
@@ -33,7 +37,13 @@ final class AppModel {
         observeShuffle()
         observeDesktopPictureSync()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.syncDesktopPictures() }
+            // DesktopManager rebuilds its displays from the same notification; their keys and screens are current after it.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.syncDesktopPictures()
+                    self?.reschedulePlaylists()
+                }
+            }
         }
         NotificationCenter.default.addObserver(forName: SceneSession.clipEnded, object: nil, queue: nil) { [weak self] n in
             guard let session = n.object as? SceneSession else { return }
@@ -46,6 +56,7 @@ final class AppModel {
         desktop.rebuildScreens()
         rescheduleShuffle()
         rescheduleCycles()
+        reschedulePlaylists()
         syncDesktopPictures()
         for (id, s) in state.wallpapers where !s.values.isEmpty {
             if let wp = library.wallpaper(id: id), wp.effectivePosterURL != wp.personalPosterURL { schedulePersonalPoster(wp) }
@@ -107,8 +118,10 @@ final class AppModel {
         case .display(let key):
             if !prefs.perDisplay { spreadToDisplays() }
             state.assignments[key] = wallpaper.id
+            state.playing[key] = ""
         default:
             state.assignments = [AppState.allDisplaysKey: wallpaper.id]
+            state.playing = [:]
         }
         state.recents.removeAll { $0 == wallpaper.id }
         state.recents.insert(wallpaper.id, at: 0)
@@ -120,8 +133,10 @@ final class AppModel {
         let before = snapshotAssignments()
         if let display, prefs.perDisplay {
             state.assignments[display] = ""
+            state.playing[display] = ""
         } else {
             state.assignments.removeAll()
+            state.playing.removeAll()
         }
         commitAssignments(undo: before, name: "Remove Wallpaper")
     }
@@ -130,10 +145,11 @@ final class AppModel {
         let before = snapshotAssignments()
         if on {
             spreadToDisplays()
-        } else if let first = desktop.displays.first?.wallpaperID {
-            state.assignments = [AppState.allDisplaysKey: first]
-            prefs.perDisplay = false
         } else {
+            let first = desktop.displays.first
+            if let id = first?.wallpaperID { state.assignments = [AppState.allDisplaysKey: id] }
+            let playlist = first.flatMap { state.playlist(forDisplay: $0.id, perDisplay: true) }
+            state.playing = playlist.map { [AppState.allDisplaysKey: $0.id.uuidString] } ?? [:]
             prefs.perDisplay = false
         }
         commitAssignments(undo: before, name: on ? "Different Wallpaper per Display" : "Same Wallpaper Everywhere")
@@ -144,22 +160,27 @@ final class AppModel {
         if let all = state.assignments[AppState.allDisplaysKey] {
             for d in desktop.displays where state.assignments[d.id] == nil { state.assignments[d.id] = all }
         }
+        if let all = state.playing[AppState.allDisplaysKey] {
+            for d in desktop.displays where state.playing[d.id] == nil { state.playing[d.id] = all }
+        }
         prefs.perDisplay = true
     }
 
-    private typealias AssignmentSnapshot = (assignments: [String: String], perDisplay: Bool)
+    private typealias AssignmentSnapshot = (assignments: [String: String], playing: [String: String], perDisplay: Bool)
 
-    private func snapshotAssignments() -> AssignmentSnapshot { (state.assignments, prefs.perDisplay) }
+    private func snapshotAssignments() -> AssignmentSnapshot { (state.assignments, state.playing, prefs.perDisplay) }
 
     private func commitAssignments(undo before: AssignmentSnapshot, name: String) {
         save()
         desktop.reloadAssignments()
         rescheduleCycles()
+        reschedulePlaylists()
         syncDesktopPictures()
-        guard before.assignments != state.assignments || before.perDisplay != prefs.perDisplay else { return }
+        guard before.assignments != state.assignments || before.playing != state.playing || before.perDisplay != prefs.perDisplay else { return }
         registerUndo(name) { model in
             let redo = model.snapshotAssignments()
             model.state.assignments = before.assignments
+            model.state.playing = before.playing
             model.prefs.perDisplay = before.perDisplay
             model.commitAssignments(undo: redo, name: name)
         }
@@ -330,6 +351,11 @@ final class AppModel {
         var r = RenderSettings()
         r.focus = s.focus(for: display)
         r.showAll = s.showAll
+        r.reactions = s.reactions
+        if s.span, let screen = desktop.screen(for: display), isEverywhere(wallpaper) {
+            r.span = Span.of(screen)
+            if r.span != nil { r.focus = s.focus(for: AppState.allDisplaysKey) }
+        }
         r.speed = s.speed
         r.fpsCap = effectiveFPSCap(s)
         r.grade = s.grade
@@ -340,6 +366,12 @@ final class AppModel {
         r.muted = s.muted || prefs.globalMute || desktop.focusMuted
         r.maxFPS = Int(desktop.screen(for: display)?.maximumFramesPerSecond ?? 120)
         return r
+    }
+
+    /// Spanning only makes sense while no display shows something else in its part of the picture.
+    private func isEverywhere(_ wallpaper: Wallpaper) -> Bool {
+        let screens = NSScreen.screens
+        return screens.count > 1 && screens.allSatisfy { self.wallpaper(forDisplay: $0.stableKey)?.id == wallpaper.id }
     }
 
     /// The Settings limit is a ceiling; a wallpaper's own choice can only lower it.
@@ -370,6 +402,11 @@ final class AppModel {
             guard let control = wp.manifest.allControls.first(where: { $0.id == controlID }) else { continue }
             advance(control, of: wp, cycle: cycle)
         }
+        for p in playbacks where p.playlist.minutes == 0 && wallpaper(forDisplay: p.key)?.id == id {
+            guard let shown = playlistShown[p.key], shown.id == id,
+                  Date().timeIntervalSince(shown.since) >= Playlist.onceThroughMinimum - 1 else { continue }
+            advancePlaylist(at: p.key)
+        }
     }
 
     func advance(_ control: Control, of wallpaper: Wallpaper, cycle: CycleSetting?) {
@@ -377,6 +414,28 @@ final class AppModel {
               let next = (cycle ?? CycleSetting()).next(after: values(for: wallpaper)[control.id], in: control)
         else { return }
         rotate(next, control: control.id, of: wallpaper)
+    }
+
+    // MARK: Reactions
+
+    /// Plays a reaction now, for the inspector's Try buttons: on the desktop when the wallpaper is there,
+    /// else in the inspector preview.
+    func tryReaction(_ trigger: ReactionTrigger, of wallpaper: Wallpaper) {
+        let sessions = SessionStore.shared.sessions(for: wallpaper.id)
+        guard let session = sessions.first(where: \.isRunning) ?? sessions.first else {
+            showToast("Apply “\(wallpaper.title)” or play its preview to see it react.")
+            return
+        }
+        if session.isReacting {
+            showToast("Wait for the current reaction to finish.")
+        } else if !session.react(trigger, force: true) {
+            showToast("That reaction’s clip couldn’t play.")
+        }
+    }
+
+    func simulateFreeze(_ wallpaper: Wallpaper) {
+        SessionStore.shared.sessions(for: wallpaper.id).filter(\.isRunning).forEach { $0.simulateStall() }
+        showToast("Stopped the video. It should start again by itself within about ten seconds.")
     }
 
     // MARK: Favorites, recents, shuffle
@@ -404,6 +463,7 @@ final class AppModel {
         for d in desktop.displays {
             guard let next = pool.filter({ !taken.contains($0.id) }).randomElement() ?? pool.filter({ $0.id != d.wallpaperID }).randomElement() else { continue }
             state.assignments[d.id] = next.id
+            state.playing[d.id] = ""
             taken.insert(next.id)
         }
         commitAssignments(undo: before, name: "Shuffle")
@@ -414,7 +474,12 @@ final class AppModel {
         guard prefs.syncDesktopPicture else { return }
         for screen in NSScreen.screens {
             if let wp = wallpaper(forDisplay: screen.stableKey) {
-                DesktopPicture.sync(wp, screens: [screen])
+                let r = renderSettings(wp, display: screen.stableKey)
+                if let span = r.span {
+                    DesktopPicture.syncSpanned(wp, screen: screen, span: span, focus: r.focus ?? wp.manifest.focus)
+                } else {
+                    DesktopPicture.sync(wp, screens: [screen])
+                }
             } else {
                 DesktopPicture.restoreOriginal(screens: [screen])
             }
@@ -461,6 +526,160 @@ final class AppModel {
                 self.shuffle()
             }
         }
+    }
+
+    // MARK: Playlists
+
+    var playlists: [Playlist] { state.playlists }
+
+    func playlist(_ id: UUID) -> Playlist? { state.playlist(id) }
+
+    func playlist(onDisplay key: String) -> Playlist? { state.playlist(forDisplay: key, perDisplay: prefs.perDisplay) }
+
+    /// Where each playing playlist is advanced: the all-displays key, or every display that plays one of its own.
+    private var playbacks: [(key: String, playlist: Playlist)] {
+        guard prefs.perDisplay else {
+            return state.playlist(forDisplay: AppState.allDisplaysKey, perDisplay: false).map { [(AppState.allDisplaysKey, $0)] } ?? []
+        }
+        return desktop.displays.compactMap { d in state.playlist(forDisplay: d.id, perDisplay: true).map { (d.id, $0) } }
+    }
+
+    var isPlayingPlaylist: Bool { !playbacks.isEmpty }
+
+    func isPlaying(_ playlist: Playlist) -> Bool { playbacks.contains { $0.playlist.id == playlist.id } }
+
+    private var playableIDs: Set<String> { Set(library.wallpapers.filter(canApply).map(\.id)) }
+
+    /// Starts the playlist at `start`, or at its beginning (a random pick when shuffled).
+    func play(_ playlist: Playlist, from start: String? = nil, to target: ApplyTarget = .automatic) {
+        let playable = playableIDs
+        guard let first = start.flatMap({ playable.contains($0) ? $0 : nil }) ?? playlist.next(after: nil, available: playable) else {
+            showToast(playlist.wallpaperIDs.isEmpty ? "Add wallpapers to “\(playlist.name)” first." : "None of the wallpapers in “\(playlist.name)” can play.")
+            return
+        }
+        let before = snapshotAssignments()
+        switch resolved(target) {
+        case .display(let key):
+            if !prefs.perDisplay { spreadToDisplays() }
+            state.assignments[key] = first
+            state.playing[key] = playlist.id.uuidString
+        default:
+            state.assignments = [AppState.allDisplaysKey: first]
+            state.playing = [AppState.allDisplaysKey: playlist.id.uuidString]
+        }
+        commitAssignments(undo: before, name: "Play “\(playlist.name)”")
+    }
+
+    /// The wallpaper on screen stays; only the automatic changes end.
+    func stop(_ playlist: Playlist) {
+        let before = snapshotAssignments()
+        if prefs.perDisplay {
+            for p in playbacks where p.playlist.id == playlist.id { state.playing[p.key] = "" }
+        } else {
+            state.playing.removeAll()
+        }
+        commitAssignments(undo: before, name: "Stop “\(playlist.name)”")
+    }
+
+    /// Moves every playing playlist on, or shuffles when none is playing.
+    func next() {
+        let active = playbacks
+        guard !active.isEmpty else {
+            shuffle()
+            return
+        }
+        active.forEach { advancePlaylist(at: $0.key, manual: true) }
+    }
+
+    /// Automatic changes skip undo and recents, like shuffle on a timer, and wait while wallpapers are paused.
+    private func advancePlaylist(at key: String, manual: Bool = false) {
+        guard manual || desktop.pauseReason == nil,
+              let playlist = state.playlist(forDisplay: key, perDisplay: prefs.perDisplay) else { return }
+        let current = wallpaper(forDisplay: key)?.id
+        guard let next = playlist.next(after: current, available: playableIDs), next != current else { return }
+        if key != AppState.allDisplaysKey { state.playing[key] = playlist.id.uuidString }
+        state.assignments[key] = next
+        save()
+        desktop.reloadAssignments()
+        rescheduleCycles()
+        reschedulePlaylists()
+        syncDesktopPictures()
+    }
+
+    /// Once-through playlists move on when the video ends (see `clipEnded`); everything else runs on a timer.
+    private func reschedulePlaylists() {
+        playlistTimers.values.forEach { $0.invalidate() }
+        playlistTimers.removeAll()
+        let active = playbacks
+        playlistShown = playlistShown.filter { entry in active.contains { $0.key == entry.key } }
+        for p in active {
+            if let id = wallpaper(forDisplay: p.key)?.id, playlistShown[p.key]?.id != id {
+                playlistShown[p.key] = (id, Date())
+            }
+            let minutes = p.playlist.minutes > 0 ? p.playlist.minutes : (wallpaper(forDisplay: p.key)?.hasVideo == false ? Playlist.stillMinutes : 0)
+            guard minutes > 0 else { continue }
+            let key = p.key
+            playlistTimers[key] = Timer.scheduledTimer(withTimeInterval: TimeInterval(minutes * 60), repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.advancePlaylist(at: key) }
+            }
+        }
+    }
+
+    /// A playlist page that should open its wallpaper chooser as soon as it shows.
+    var choosingWallpapersFor: UUID?
+
+    /// An empty playlist, shown with its chooser open.
+    func newPlaylist() {
+        let playlist = createPlaylist()
+        requestedPage = .playlist(playlist.id)
+        choosingWallpapersFor = playlist.id
+    }
+
+    @discardableResult
+    func createPlaylist(with wallpaperIDs: [String] = []) -> Playlist {
+        let names = Set(state.playlists.map(\.name))
+        var name = "New Playlist"
+        var n = 2
+        while names.contains(name) {
+            name = "New Playlist \(n)"
+            n += 1
+        }
+        let playlist = Playlist(name: name, wallpaperIDs: wallpaperIDs)
+        state.playlists.append(playlist)
+        save()
+        return playlist
+    }
+
+    func updatePlaylist(_ id: UUID, _ change: (inout Playlist) -> Void) {
+        guard let i = state.playlists.firstIndex(where: { $0.id == id }) else { return }
+        let old = state.playlists[i]
+        change(&state.playlists[i])
+        scheduleSave()
+        if state.playlists[i].minutes != old.minutes { reschedulePlaylists() }
+    }
+
+    func add(_ wallpaper: Wallpaper, to playlist: Playlist) {
+        updatePlaylist(playlist.id) { p in
+            if !p.wallpaperIDs.contains(wallpaper.id) { p.wallpaperIDs.append(wallpaper.id) }
+        }
+        showToast("Added “\(wallpaper.title)” to “\(playlist.name)”")
+    }
+
+    func deletePlaylist(_ playlist: Playlist) {
+        let before = (playlists: state.playlists, playing: state.playing)
+        state.playlists.removeAll { $0.id == playlist.id }
+        state.playing = state.playing.filter { $0.value != playlist.id.uuidString }
+        save()
+        reschedulePlaylists()
+        let restore: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            self.state.playlists = before.playlists
+            self.state.playing = before.playing
+            self.save()
+            self.reschedulePlaylists()
+        }
+        registerUndo("Delete “\(playlist.name)”") { _ in restore() }
+        showToast("Deleted “\(playlist.name)”", action: ToastAction(title: "Undo", run: restore))
     }
 
     // MARK: Library
@@ -582,6 +801,7 @@ final class AppModel {
             NSAlert(error: error).runModal()
             return
         }
+        let emptied = playbacks.filter { self.wallpaper(forDisplay: $0.key)?.id == wallpaper.id }.map(\.key)
         state.assignments = state.assignments.filter { $0.value != wallpaper.id }
         state.favorites.remove(wallpaper.id)
         state.recents.removeAll { $0 == wallpaper.id }
@@ -592,6 +812,7 @@ final class AppModel {
         desktop.reloadAssignments()
         rescheduleCycles()
         syncDesktopPictures()
+        emptied.forEach { advancePlaylist(at: $0, manual: true) }
 
         let token = UndoToken()
         let restore: @MainActor () -> Void = { [weak self] in
@@ -697,23 +918,33 @@ final class AppModel {
             try? FileManager.default.removeItem(at: Paths.generatedPosters.appendingPathComponent("\(id).heic"))
         }
         rescheduleCycles()
+        reschedulePlaylists()
     }
 
-    /// The bundled samples are copied in on first launch so the library never starts empty.
+    /// Each bundled sample is copied in once: all of them on first launch, and new ones when an update ships
+    /// them. A sample the user deleted is never brought back.
     private func installSamplesIfNeeded() async {
-        guard !UserDefaults.standard.bool(forKey: "samplesInstalled"),
-              let samples = Bundle.main.url(forResource: "Samples", withExtension: nil),
+        guard let samples = Bundle.main.url(forResource: "Samples", withExtension: nil),
               let items = try? FileManager.default.contentsOfDirectory(at: samples, includingPropertiesForKeys: nil)
         else { return }
-        UserDefaults.standard.set(true, forKey: "samplesInstalled")
+        let defaults = UserDefaults.standard
+        let firstLaunch = !defaults.bool(forKey: "samplesInstalled")
+        var offered = Set(defaults.stringArray(forKey: "offeredSamples") ?? [])
+        // Installs from before per-sample tracking offered whatever is already in the library.
+        if !firstLaunch, defaults.stringArray(forKey: "offeredSamples") == nil {
+            offered = Set(library.wallpapers.map(\.id))
+        }
         var first: Wallpaper?
-        for item in items where item.pathExtension == Manifest.packageExtension {
+        for item in items.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where item.pathExtension == Manifest.packageExtension {
+            guard let manifest = try? Manifest.load(from: item), offered.insert(manifest.id).inserted else { continue }
             if let wp = try? await library.importPackage(at: item) {
                 noteAdded(wp.id)
                 first = first ?? wp
             }
         }
-        if state.assignments.isEmpty, let first { apply(first) }
+        defaults.set(true, forKey: "samplesInstalled")
+        defaults.set(Array(offered).sorted(), forKey: "offeredSamples")
+        if firstLaunch, state.assignments.isEmpty, let first { apply(first) }
     }
 
     // MARK: Screen saver
@@ -721,18 +952,28 @@ final class AppModel {
     func useAsScreenSaver(_ wallpaper: Wallpaper) {
         prefs.saverWallpaperID = wallpaper.id
         prefs.saverSource = .wallpaper
+        announceScreenSaver(wallpaper.title)
+    }
+
+    func useAsScreenSaver(_ playlist: Playlist) {
+        prefs.saverPlaylistID = playlist.id.uuidString
+        prefs.saverSource = .playlist
+        announceScreenSaver(playlist.name)
+    }
+
+    private func announceScreenSaver(_ title: String) {
         screenSaver.refresh()
         let saver = screenSaver
         switch saver.status {
         case .installed where saver.isSelected:
-            showToast("“\(wallpaper.title)” will play as your screen saver.")
+            showToast("“\(title)” will play as your screen saver.")
         case .installed:
-            showToast("“\(wallpaper.title)” will play once MacPaper is your screen saver.",
+            showToast("“\(title)” will play once MacPaper is your screen saver.",
                       action: ToastAction(title: "Open Settings") { saver.openSystemSettings() })
         case .unavailable:
             showToast("The screen saver is only available when MacPaper runs from its app bundle.")
         case .notInstalled, .outdated:
-            showToast("Install the MacPaper screen saver to play “\(wallpaper.title)”.",
+            showToast("Install the MacPaper screen saver to play “\(title)”.",
                       action: ToastAction(title: "Install") { saver.install() })
         }
     }
@@ -776,7 +1017,16 @@ final class AppModel {
             if q("apply") != "false", let wp = library.wallpapers.first(where: { $0.url.standardizedFileURL.path == URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }) {
                 apply(wp)
             }
-        case "next": shuffle()
+        case "next": next()
+        case "simulate-freeze":
+            if let wp = currentWallpaper { simulateFreeze(wp) }
+        case "react":
+            guard let trigger = q("event").flatMap(ReactionTrigger.init(rawValue:)) else { break }
+            desktop.react(trigger, force: true)
+        case "play":
+            guard let name = q("playlist"),
+                  let playlist = state.playlists.first(where: { $0.id.uuidString == name || $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { break }
+            play(playlist)
         case "pause": desktop.userPaused = true
         case "resume": desktop.userPaused = false
         case "toggle": desktop.userPaused.toggle()
@@ -817,13 +1067,49 @@ enum DesktopPicture {
             }
             try? FileManager.default.copyItem(at: poster, to: dest)
         }
+        setPicture(dest, for: screens)
+    }
+
+    /// A spanned wallpaper gives each screen its own part of the poster, written once per arrangement.
+    @MainActor
+    static func syncSpanned(_ wallpaper: Wallpaper, screen: NSScreen, span: Span, focus: SIMD2<Double>) {
+        guard let poster = wallpaper.effectivePosterURL else { return }
+        let version = (try? poster.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? wallpaper.stamp
+        let place = "span-\(screen.stableKey.prefix(8))"
+        let layout = "\(Int(span.total.width))x\(Int(span.total.height))-\(Int(span.rect.minX * 1000))-\(Int(span.rect.minY * 1000))"
+        let dest = Paths.desktopPictures.appendingPathComponent("\(wallpaper.id)-\(Int(version.timeIntervalSince1970))-\(place)-\(layout).heic")
+        if FileManager.default.fileExists(atPath: dest.path) {
+            setPicture(dest, for: [screen])
+            return
+        }
+        let size = CGSize(width: screen.frame.width * screen.backingScaleFactor, height: screen.frame.height * screen.backingScaleFactor)
+        Task.detached(priority: .utility) {
+            guard let image = PosterCache.decode(poster, size: size, focus: focus, span: span),
+                  let out = CGImageDestinationCreateWithURL(dest as CFURL, "public.heic" as CFString, 1, nil) else { return }
+            CGImageDestinationAddImage(out, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+            guard CGImageDestinationFinalize(out) else { return }
+            await MainActor.run {
+                let stale = (try? FileManager.default.contentsOfDirectory(at: Paths.desktopPictures, includingPropertiesForKeys: nil)) ?? []
+                for f in stale where f.lastPathComponent.hasPrefix(wallpaper.id) && f.lastPathComponent.contains(place) && f != dest {
+                    try? FileManager.default.removeItem(at: f)
+                }
+                guard NSScreen.screens.contains(screen) else { return }
+                setPicture(dest, for: [screen])
+            }
+        }
+    }
+
+    @MainActor
+    private static func setPicture(_ dest: URL, for screens: [NSScreen]) {
         var originals = UserDefaults.standard.dictionary(forKey: originalsKey) as? [String: String] ?? [:]
         for screen in screens {
             if originals[screen.stableKey] == nil, let current = NSWorkspace.shared.desktopImageURL(for: screen),
                !current.path.hasPrefix(Paths.desktopPictures.path) {
                 originals[screen.stableKey] = current.path
             }
-            try? NSWorkspace.shared.setDesktopImageURL(dest, for: screen, options: [:])
+            if NSWorkspace.shared.desktopImageURL(for: screen) != dest {
+                try? NSWorkspace.shared.setDesktopImageURL(dest, for: screen, options: [:])
+            }
         }
         UserDefaults.standard.set(originals, forKey: originalsKey)
     }

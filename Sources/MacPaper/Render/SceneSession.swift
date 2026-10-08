@@ -49,6 +49,21 @@ final class SceneSession {
     private var idleTimer: Timer?
     var spectrum = AudioSpectrum.silent
 
+    private struct ActiveReaction {
+        let layer: String
+        var base: VideoSpec
+        let resumeAt: Double
+        let source: VideoSource
+    }
+    private var reaction: ActiveReaction?
+    /// The fade a layer uses into a reaction clip and back out of it, instead of its own crossfade.
+    private var fadeOverride: [String: Double] = [:]
+    private var lastReactionAt: CFTimeInterval = -.infinity
+    private var reactionTurns: [ReactionTrigger: Int] = [:]
+    private var reactionTimers: [Timer] = []
+    /// The user's switch; a forced reaction (a preview button) plays anyway.
+    var reactionsEnabled = true
+
     init(wallpaper: Wallpaper, values: [String: JSONValue]) {
         self.wallpaper = wallpaper
         self.values = values
@@ -61,6 +76,7 @@ final class SceneSession {
             audioPlayer?.prepareToPlay()
         }
         applyAudio()
+        scheduleReactionTimers()
     }
 
     // MARK: Values
@@ -68,8 +84,10 @@ final class SceneSession {
     func apply(values: [String: JSONValue]) {
         guard values != self.values else { return }
         self.values = values
+        let reactions = scene.reactions
         scene = SceneResolver.resolve(wallpaper.manifest, values: values)
         prepare()
+        if scene.reactions != reactions { scheduleReactionTimers() }
         notify()
     }
 
@@ -91,6 +109,10 @@ final class SceneSession {
             case .video(let v):
                 guard layer.visible, let url = wallpaper.file(v.src) else { continue }
                 wantedVideos.insert(layer.id)
+                if reaction?.layer == layer.id {
+                    reaction?.base = v
+                    continue
+                }
                 if let existing = videos[layer.id], existing.url == url, existing.loops == (v.crossfade <= 0) {
                     existing.update(spec: v)
                 } else {
@@ -100,6 +122,7 @@ final class SceneSession {
             }
         }
         for (id, source) in videos where !wantedVideos.contains(id) {
+            if reaction?.layer == id { reaction = nil }
             source.tearDown()
             videos[id] = nil
             outgoing[id]?.source.tearDown()
@@ -108,7 +131,8 @@ final class SceneSession {
         applyAudio()
     }
 
-    private func replaceVideo(_ id: String, url: URL, spec: VideoSpec, intro: Bool) {
+    /// `fade` overrides the clip's own crossfade; `announce: false` keeps the clip's entrance line from showing again.
+    private func replaceVideo(_ id: String, url: URL, spec: VideoSpec, intro: Bool, fade: Double? = nil, startAt: Double? = nil, announce: Bool = true) {
         if let old = videos[id] {
             outgoing[id]?.source.tearDown()
             outgoing[id] = nil
@@ -116,15 +140,15 @@ final class SceneSession {
                 old.onEnded = nil
                 old.setPlaying(false)
                 old.setAudio(volume: 0, muted: true)
-                outgoing[id] = Outgoing(source: old, fade: spec.crossfade)
+                outgoing[id] = Outgoing(source: old, fade: fade ?? spec.crossfade)
             } else {
                 old.tearDown()
             }
         }
-        if id == scene.captions?.video {
+        if announce, id == scene.captions?.video {
             pendingCaptions[id] = (spec.freeze != nil && !intro ? .restored : .enter, spec.src)
         }
-        let source = VideoSource(url: url, spec: spec, intro: intro)
+        let source = VideoSource(url: url, spec: spec, intro: intro, startAt: startAt)
         source.setSpeed(speed)
         source.setPlaying(runningSince != nil)
         source.setAudio(volume: volume, muted: muted)
@@ -144,6 +168,10 @@ final class SceneSession {
     /// Lets the app advance a cycling control first; a clip that is still current afterwards plays again.
     private func clipEnded(_ id: String, _ source: VideoSource) {
         guard videos[id] === source else { return }
+        if reaction?.source === source {
+            endReaction()
+            return
+        }
         NotificationCenter.default.post(name: Self.clipEnded, object: self, userInfo: ["layer": id])
         guard !source.loops else { return }
         DispatchQueue.main.async { [weak self] in
@@ -157,6 +185,11 @@ final class SceneSession {
 
     private func pollVideoReady(_ source: VideoSource, attempt: Int = 0) {
         guard videos.values.contains(where: { $0 === source }) else { return }
+        if source.failed != nil, reaction?.source === source {
+            Log.shared.write("\(wallpaper.title): reaction clip \(source.url.lastPathComponent) failed: \(source.failed ?? "")")
+            endReaction()
+            return
+        }
         if attempt >= 200 || source.isReady || source.frame(hostTime: CACurrentMediaTime()) != nil {
             if let id = videos.first(where: { $0.value === source })?.key, var out = outgoing[id] {
                 let old = out.source
@@ -298,7 +331,136 @@ final class SceneSession {
     }
 
     func crossfade(for layerID: String) -> Double {
-        scene.layers.first { $0.id == layerID }?.video?.crossfade ?? 0
+        fadeOverride[layerID] ?? scene.layers.first { $0.id == layerID }?.video?.crossfade ?? 0
+    }
+
+    // MARK: Health
+
+    /// True while some clip should be advancing on its own.
+    var expectsVideoMotion: Bool {
+        runningSince != nil && scene.layers.contains { $0.visible && $0.video.map { $0.freeze == nil } == true }
+    }
+
+    /// Changes whenever any clip moves; a value that stays put while `expectsVideoMotion` means a stalled player.
+    var videoClock: Double { videos.values.reduce(0) { $0 + $1.position } }
+
+    /// Halts every player behind the session's back, the way a stalled decoder looks; for testing the freeze guard.
+    func simulateStall() {
+        videos.values.forEach { $0.player.rate = 0 }
+    }
+
+    private var lastRestart: CFTimeInterval = -.infinity
+
+    /// Fresh decoders for every clip, resuming where each was; for a player that stopped advancing. Several
+    /// displays share a session, so a second request soon after is refused and the caller escalates instead.
+    @discardableResult
+    func restartVideos() -> Bool {
+        let now = CACurrentMediaTime()
+        guard now - lastRestart > 20 else { return false }
+        lastRestart = now
+        let interrupted = reaction
+        reaction = nil
+        fadeOverride.removeAll()
+        for layer in scene.layers where layer.visible {
+            guard let v = layer.video, let url = wallpaper.file(v.src), let old = videos[layer.id] else { continue }
+            let resumeAt = interrupted?.layer == layer.id ? interrupted?.resumeAt : old.position
+            replaceVideo(layer.id, url: url, spec: v, intro: false, startAt: v.freeze == nil ? resumeAt : nil, announce: false)
+        }
+        notify()
+        return true
+    }
+
+    // MARK: Reactions
+
+    var isReacting: Bool { reaction != nil }
+
+    /// Plays the clip for `trigger` once over the loop, unless one is already playing, the last one was too
+    /// recent, or nothing is on screen to see it. `force` (a preview button) skips those checks.
+    @discardableResult
+    func react(_ trigger: ReactionTrigger, away: Double? = nil, force: Bool = false) -> Bool {
+        guard let spec = scene.reactions, let rule = spec.rule(for: trigger), reaction == nil else { return false }
+        let now = CACurrentMediaTime()
+        if !force {
+            guard reactionsEnabled, runningSince != nil, now - lastReactionAt >= rule.cooldown ?? spec.cooldown else { return false }
+            if trigger == .comeBack, (away ?? 0) < rule.idle { return false }
+        }
+        guard let layer = scene.layers.first(where: { $0.id == spec.video }), layer.visible, let base = layer.video,
+              let current = videos[layer.id], current.failed == nil else { return false }
+        let turn = reactionTurns[trigger, default: 0]
+        reactionTurns[trigger] = turn + 1
+        let clip = rule.clips[turn % rule.clips.count]
+        guard let url = wallpaper.file(clip), FileManager.default.fileExists(atPath: url.path) else { return false }
+        var once = base
+        once.src = clip
+        once.freeze = nil
+        once.intro = false
+        // A crossfading clip plays once and reports its end instead of looping.
+        once.crossfade = spec.crossfade
+        fadeOverride[layer.id] = spec.crossfade
+        let resumeAt = current.position
+        replaceVideo(layer.id, url: url, spec: once, intro: false)
+        guard let source = videos[layer.id] else { return false }
+        reaction = ActiveReaction(layer: layer.id, base: base, resumeAt: resumeAt, source: source)
+        lastReactionAt = now
+        Log.shared.write("\(wallpaper.title): \(trigger.rawValue) reaction, \(clip)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180) { [weak self, weak source] in
+            MainActor.assumeIsolated {
+                guard let self, let source, self.reaction?.source === source else { return }
+                self.endReaction()
+            }
+        }
+        notify()
+        return true
+    }
+
+    private func endReaction() {
+        guard let r = reaction else { return }
+        reaction = nil
+        lastReactionAt = CACurrentMediaTime()
+        guard let url = wallpaper.file(r.base.src) else { return }
+        let fade = fadeOverride[r.layer] ?? 0.8
+        replaceVideo(r.layer, url: url, spec: r.base, intro: false, fade: fade, startAt: r.base.freeze == nil ? r.resumeAt : nil, announce: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + fade + 1.5) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.reaction?.layer != r.layer else { return }
+                self.fadeOverride[r.layer] = nil
+            }
+        }
+        notify()
+    }
+
+    private func scheduleReactionTimers() {
+        reactionTimers.forEach { $0.invalidate() }
+        reactionTimers.removeAll()
+        guard let spec = scene.reactions else { return }
+        if let r = spec.rule(for: .random) { scheduleRandomReaction(every: r.every) }
+        if let r = spec.rule(for: .time), !r.at.isEmpty { scheduleTimedReaction(r.at) }
+    }
+
+    private func scheduleRandomReaction(every: Double) {
+        let timer = Timer.scheduledTimer(withTimeInterval: every * Double.random(in: 0.6...1.4), repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.react(.random)
+                self?.scheduleRandomReaction(every: every)
+            }
+        }
+        reactionTimers = reactionTimers.filter(\.isValid) + [timer]
+    }
+
+    private func scheduleTimedReaction(_ minutes: [Int]) {
+        let now = Date()
+        let next = minutes.compactMap { m in
+            Calendar.current.nextDate(after: now, matching: DateComponents(hour: m / 60, minute: m % 60, second: 0), matchingPolicy: .nextTime)
+        }.min()
+        guard let next else { return }
+        let timer = Timer(fire: next, interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.react(.time)
+                self?.scheduleTimedReaction(minutes)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reactionTimers = reactionTimers.filter(\.isValid) + [timer]
     }
 
     /// Motion beyond what the resolved scene declares: a clip playing its intro, or a crossfade in progress.
@@ -499,6 +661,9 @@ final class SceneSession {
     func tearDown() {
         idleTimer?.invalidate()
         idleTimer = nil
+        reactionTimers.forEach { $0.invalidate() }
+        reactionTimers.removeAll()
+        reaction = nil
         videos.values.forEach { $0.tearDown() }
         videos.removeAll()
         outgoing.values.forEach { $0.source.tearDown() }

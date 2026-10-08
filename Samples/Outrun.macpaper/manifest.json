@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "id": "9E2F6B1C-3A58-4C07-B9D4-71A0C8E52F36",
+  "title": "Outrun",
+  "author": "MacPaper",
+  "description": "An endless synthwave drive under a striped sun. Turn on \"Wallpapers react to sound\" in Settings and the sun and grid pulse with the bass.",
+  "tags": ["synthwave", "retro", "neon", "procedural", "audio"],
+  "canvas": { "width": 3840, "height": 2160 },
+  "focus": [0.5, 0.5],
+  "fps": 60,
+  "drift": 0.4,
+  "layers": [
+    { "id": "drive", "type": "shader", "src": "shaders/outrun.metal",
+      "params": {
+        "horizon": { "type": "float", "value": 0.6 },
+        "speed": { "type": "float", "value": 1.0 },
+        "sunSize": { "type": "float", "value": 0.24 },
+        "gridScale": { "type": "float", "value": 1.0 },
+        "react": { "type": "float", "value": 0.35 },
+        "skyTop": { "type": "color", "value": "#0b0420" },
+        "skyLow": { "type": "color", "value": "#ff2a8a" },
+        "sunTop": { "type": "color", "value": "#ffe45c" },
+        "sunLow": { "type": "color", "value": "#ff3d7f" },
+        "mountain": { "type": "color", "value": "#1a0b3d" },
+        "rim": { "type": "color", "value": "#ff4fd8" },
+        "grid": { "type": "color", "value": "#22e5ff" },
+        "floor": { "type": "color", "value": "#0a0218" }
+      } }
+  ],
+  "controls": [
+    { "id": "palette", "type": "choice", "style": "segmented", "label": "Palette", "quick": true,
+      "options": [
+        { "label": "Miami", "value": "miami", "set": { "drive.params.skyTop": "#0b0420", "drive.params.skyLow": "#ff2a8a", "drive.params.sunTop": "#ffe45c", "drive.params.sunLow": "#ff3d7f", "drive.params.rim": "#ff4fd8", "drive.params.grid": "#22e5ff" } },
+        { "label": "Tron", "value": "tron", "set": { "drive.params.skyTop": "#00030f", "drive.params.skyLow": "#0a5cff", "drive.params.sunTop": "#c8f6ff", "drive.params.sunLow": "#2aa8ff", "drive.params.rim": "#36e2ff", "drive.params.grid": "#3cf2ff" } },
+        { "label": "Sunset", "value": "sunset", "set": { "drive.params.skyTop": "#120318", "drive.params.skyLow": "#ff6a2a", "drive.params.sunTop": "#fff1a8", "drive.params.sunLow": "#ff5a36", "drive.params.rim": "#ff9a3c", "drive.params.grid": "#ff3ad6" } }
+      ] },
+    { "id": "speed", "type": "slider", "label": "Speed", "min": 0, "max": 3, "unit": "x", "target": "drive.params.speed" },
+    { "id": "sun", "type": "slider", "label": "Sun size", "min": 0.12, "max": 0.36, "target": "drive.params.sunSize" },
+    { "id": "react", "type": "slider", "label": "Bass pulse", "min": 0, "max": 1, "unit": "%", "target": "drive.params.react" }
+  ]
+}

@@ -1,0 +1,205 @@
+{
+  "canvas": {
+    "height": 2160,
+    "width": 3840
+  },
+  "controls": [
+    {
+      "id": "depth",
+      "label": "Depth",
+      "max": 0.08,
+      "min": 0,
+      "target": "plate.depthStrength",
+      "type": "slider"
+    },
+    {
+      "controls": [
+        {
+          "id": "fog-on",
+          "label": "On",
+          "target": "fog.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "fog-density",
+          "label": "Density",
+          "max": 1,
+          "min": 0,
+          "target": "fog.params.density",
+          "type": "slider",
+          "unit": "%"
+        },
+        {
+          "id": "fog-height",
+          "label": "Height",
+          "max": 1,
+          "min": 0,
+          "target": "fog.params.height",
+          "type": "slider"
+        },
+        {
+          "id": "fog-speed",
+          "label": "Speed",
+          "max": 4,
+          "min": 0,
+          "target": "fog.params.speed",
+          "type": "slider",
+          "unit": "x"
+        },
+        {
+          "id": "fog-color",
+          "label": "Color",
+          "target": "fog.params.color",
+          "type": "color"
+        }
+      ],
+      "label": "Fog",
+      "type": "section"
+    },
+    {
+      "controls": [
+        {
+          "id": "bloom-on",
+          "label": "On",
+          "target": "bloom.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "bloom-threshold",
+          "label": "Threshold",
+          "max": 1,
+          "min": 0,
+          "target": "bloom.params.threshold",
+          "type": "slider"
+        },
+        {
+          "id": "bloom-intensity",
+          "label": "Intensity",
+          "max": 2,
+          "min": 0,
+          "target": "bloom.params.intensity",
+          "type": "slider"
+        },
+        {
+          "id": "bloom-radius",
+          "label": "Radius",
+          "max": 4,
+          "min": 0.2,
+          "target": "bloom.params.radius",
+          "type": "slider"
+        }
+      ],
+      "label": "Bloom",
+      "type": "section"
+    },
+    {
+      "controls": [
+        {
+          "id": "snow-on",
+          "label": "On",
+          "target": "snow.visible",
+          "type": "toggle"
+        },
+        {
+          "id": "snow-count",
+          "label": "Amount",
+          "max": 2100,
+          "min": 0,
+          "target": "snow.count",
+          "type": "slider"
+        },
+        {
+          "id": "snow-turbulence",
+          "label": "Swirl",
+          "max": 0.2,
+          "min": 0,
+          "target": "snow.turbulence",
+          "type": "slider"
+        },
+        {
+          "id": "snow-color",
+          "label": "Color",
+          "target": "snow.color",
+          "type": "color"
+        }
+      ],
+      "label": "Snow",
+      "type": "section"
+    }
+  ],
+  "drift": 0.3,
+  "focus": [
+    0.50372314453125,
+    0.417236328125
+  ],
+  "format": 1,
+  "fps": 30,
+  "id": "E2F238EA-0F7B-49E2-85A4-77A2546BFAEF",
+  "layers": [
+    {
+      "depth": "images/plate-depth.png",
+      "depthStrength": 0.028,
+      "id": "plate",
+      "src": "images/plate.heic",
+      "type": "image"
+    },
+    {
+      "id": "fog",
+      "params": {
+        "color": {
+          "type": "color",
+          "value": "#c6d4ee"
+        },
+        "density": {
+          "type": "float",
+          "value": 0.22
+        },
+        "height": {
+          "type": "float",
+          "value": 0.85
+        },
+        "speed": {
+          "type": "float",
+          "value": 0.4
+        }
+      },
+      "src": "shaders/fog.metal",
+      "type": "shader"
+    },
+    {
+      "id": "bloom",
+      "params": {
+        "intensity": {
+          "type": "float",
+          "value": 0.45
+        },
+        "radius": {
+          "type": "float",
+          "value": 1.5
+        },
+        "threshold": {
+          "type": "float",
+          "value": 0.78
+        }
+      },
+      "src": "shaders/bloom.metal",
+      "type": "shader"
+    },
+    {
+      "id": "snow",
+      "preset": "snow",
+      "type": "particles",
+      "count": 900
+    }
+  ],
+  "poster": "poster.heic",
+  "title": "Snow Cabin",
+  "author": "MacPaper",
+  "description": "A warm cabin in a snowy forest at blue hour. Snow falls in depth, the windows glow, mist rests in the hollows.",
+  "tags": [
+    "winter",
+    "snow",
+    "cozy",
+    "forest"
+  ]
+}

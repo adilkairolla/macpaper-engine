@@ -100,6 +100,8 @@ enum Validator {
             return ["drift": .number, "background": .color][parts[1]].flatMap { $0 }
         case "audio":
             return parts[1] == "volume" ? .number : nil
+        case "reactions":
+            return ["enabled": .bool, "cooldown": .number, "crossfade": .number][parts[1]].flatMap { $0 }
         case "captions":
             if parts[1] == "idleEvery" { return .number }
             guard parts[1] == "lang" else { return nil }
@@ -157,6 +159,53 @@ enum Validator {
                 issues.append(.error("captions.video", "required: the id of the video layer the lines follow"))
             }
             for src in (c["lines"]?.object ?? [:]).keys { file(src, "captions.lines") }
+        }
+        if let r = m.raw["reactions"] {
+            if let video = r["video"]?.string {
+                if !m.layers.contains(where: { $0["id"]?.string == video && $0["type"]?.string == "video" }) {
+                    issues.append(.error("reactions.video", "must name a video layer"))
+                }
+            } else {
+                issues.append(.error("reactions.video", "required: the id of the video layer that plays the clips"))
+            }
+            for key in ["crossfade", "cooldown"] where r[key] != nil && r[key]?.number == nil {
+                issues.append(.error("reactions.\(key)", "must be a number of seconds"))
+            }
+            if let e = r["enabled"], e.bool == nil { issues.append(.error("reactions.enabled", "must be true or false")) }
+            let events = r["events"]?.array ?? []
+            if events.isEmpty { issues.append(.error("reactions.events", "list at least one event")) }
+            var seen: Set<String> = []
+            let names = ReactionTrigger.allCases.map(\.rawValue)
+            for (i, e) in events.enumerated() {
+                let at = "reactions.events[\(i)]"
+                guard let on = e["on"]?.string, let trigger = ReactionTrigger(rawValue: on) else {
+                    issues.append(.error("\(at).on", "must be one of " + names.joined(separator: ", ")))
+                    continue
+                }
+                if !seen.insert(on).inserted { issues.append(.warning("\(at).on", "only the first \"\(on)\" event is used")) }
+                let clips = (e["clips"]?.array ?? []) + [e["clip"]].compactMap { $0 }
+                if clips.isEmpty { issues.append(.error("\(at).clips", "list at least one clip")) }
+                for (j, clip) in clips.enumerated() {
+                    guard let path = clip.string else {
+                        issues.append(.error("\(at).clips[\(j)]", "must be a file path"))
+                        continue
+                    }
+                    file(path, "\(at).clips[\(j)]")
+                }
+                for key in ["cooldown", "idle", "every"] where e[key] != nil && e[key]?.number == nil {
+                    issues.append(.error("\(at).\(key)", "must be a number of seconds"))
+                }
+                if trigger == .time {
+                    let times = e["at"]?.array ?? [e["at"]].compactMap { $0 }
+                    if times.isEmpty || times.contains(where: { $0.string.flatMap(ReactionsSpec.minutesAfterMidnight) == nil }) {
+                        issues.append(.error("\(at).at", "required: a time like \"23:30\", or a list of them"))
+                    }
+                }
+                let known: Set<String> = ["on", "clips", "clip", "cooldown", "idle", "every", "at"]
+                for key in (e.object ?? [:]).keys where !known.contains(key) {
+                    issues.append(.warning("\(at).\(key)", "unknown property for an event"))
+                }
+            }
         }
 
         var ids: Set<String> = []
