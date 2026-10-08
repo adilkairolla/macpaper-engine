@@ -183,6 +183,10 @@ private struct ControlsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let rest = RestSpec.decode(wallpaper.manifest.raw["rest"]) {
+                RestModeSection(wallpaper: wallpaper, rest: rest)
+                Divider()
+            }
             if let reactions = ReactionsSpec.decode(wallpaper.manifest.raw["reactions"]) {
                 ReactionsSection(wallpaper: wallpaper, spec: reactions)
                 Divider()
@@ -505,7 +509,53 @@ struct WallpaperMenuItems: View {
     }
 }
 
-private struct ReactionsSection: View {
+/// Show and rest, rest only, or show only, for a wallpaper with a resting loop.
+struct RestModePicker: View {
+    @Environment(AppModel.self) private var model
+    let wallpaper: Wallpaper
+
+    var body: some View {
+        Picker("Mode", selection: Binding(
+            get: { model.settings(wallpaper.id).restMode },
+            set: { v in model.update(wallpaper.id) { $0.restMode = v } }
+        )) {
+            Text("Show and rest").tag(RestMode.cycle)
+            Text("Rest only").tag(RestMode.rest)
+            Text("Show only").tag(RestMode.show)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct RestModeSection: View {
+    @Environment(AppModel.self) private var model
+    let wallpaper: Wallpaper
+    let rest: RestSpec
+
+    var body: some View {
+        let mode = model.settings(wallpaper.id).restMode
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: "Mode")
+            RestModePicker(wallpaper: wallpaper)
+            Text(Self.explanation(mode, minutes: rest.minutes))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(.small)
+    }
+
+    static func explanation(_ mode: RestMode, minutes: Double) -> String {
+        switch mode {
+        case .cycle: "The full video plays once, then she rests and reacts to you for \(Int(minutes.rounded())) minutes, and it starts over."
+        case .rest: "She stays in her resting pose and reacts to you."
+        case .show: "The full video on repeat. She doesn’t react."
+        }
+    }
+}
+
+struct ReactionsSection: View {
     @Environment(AppModel.self) private var model
     let wallpaper: Wallpaper
     let spec: ReactionsSpec
@@ -530,20 +580,35 @@ private struct ReactionsSection: View {
                         .help("Play this reaction now")
                 }
             }
-            .disabled(!model.settings(wallpaper.id).reactions)
+            .disabled(!model.settings(wallpaper.id).reactions || showOnly)
         }
         .controlSize(.small)
     }
 
+    private var showOnly: Bool {
+        wallpaper.manifest.raw["rest"] != nil && model.settings(wallpaper.id).restMode == .show
+    }
+
     static func title(_ rule: ReactionsSpec.Rule) -> String {
+        guard let w = rule.between else { return event(rule) }
+        return event(rule) + ", " + "\(clock(w.from))–\(clock(w.to))"
+    }
+
+    private static func clock(_ minutes: Int) -> String { String(format: "%d:%02d", minutes / 60, minutes % 60) }
+
+    private static func event(_ rule: ReactionsSpec.Rule) -> String {
         switch rule.trigger {
         case .unlock: "When you unlock your Mac"
         case .wake: "When the display wakes"
         case .comeBack: "When you come back after \(Self.duration(rule.idle))"
         case .click: "When you click the desktop"
         case .time:
-            "At " + rule.at.map { String(format: "%d:%02d", $0 / 60, $0 % 60) }.formatted(.list(type: .and))
+            "At " + rule.at.map(clock).formatted(.list(type: .and))
         case .random: "Now and then, about every \(Self.duration(rule.every))"
+        case .idle: "When you’ve been idle for \(Self.duration(rule.idle))"
+        case .charge: "When you plug in the charger"
+        case .music: "When music starts in Music or Spotify"
+        case .meeting: rule.before < 1 ? "When a calendar event starts" : "\(Self.duration(rule.before * 60)) before a calendar event"
         }
     }
 

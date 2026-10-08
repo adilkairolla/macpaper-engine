@@ -158,7 +158,7 @@ struct CaptionsSpec: Hashable, Sendable {
 }
 
 enum ReactionTrigger: String, Hashable, Sendable, CaseIterable {
-    case unlock, wake, comeBack = "return", click, time, random
+    case unlock, wake, comeBack = "return", click, time, random, idle, charge, music, meeting
 }
 
 /// Short clips a video layer plays once when something happens, then goes back to where its loop was.
@@ -167,12 +167,35 @@ struct ReactionsSpec: Hashable, Sendable {
         var trigger: ReactionTrigger
         var clips: [String]
         var cooldown: Double?
-        /// `return`: how long you must have been away, in seconds.
+        /// `return` and `idle`: how long without input, in seconds.
         var idle: Double
         /// `random`: the average gap between reactions, in seconds.
         var every: Double
         /// `time`: minutes after midnight.
         var at: [Int]
+        /// `meeting`: how many minutes before the event starts.
+        var before: Double = 2
+        /// Only between these times of day.
+        var between: TimeWindow?
+    }
+
+    /// Minutes after midnight; `from` after `to` runs past midnight.
+    struct TimeWindow: Hashable, Sendable {
+        var from: Int
+        var to: Int
+
+        func contains(_ date: Date) -> Bool {
+            let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+            let m = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+            return from <= to ? (from..<to).contains(m) : m >= from || m < to
+        }
+
+        static func decode(_ v: JSONValue?) -> TimeWindow? {
+            guard let a = v?.array, a.count == 2,
+                  let from = a[0].string.flatMap(minutesAfterMidnight), let to = a[1].string.flatMap(minutesAfterMidnight),
+                  from != to else { return nil }
+            return TimeWindow(from: from, to: to)
+        }
     }
 
     static let defaultCooldown = 30.0
@@ -194,7 +217,8 @@ struct ReactionsSpec: Hashable, Sendable {
             return Rule(
                 trigger: trigger, clips: clips, cooldown: e["cooldown"]?.number.map { max($0, 0) },
                 idle: max(e["idle"]?.number ?? defaultIdle, 10), every: max(e["every"]?.number ?? 600, 30),
-                at: ((e["at"]?.array ?? [e["at"]].compactMap { $0 }).compactMap { $0.string.flatMap(minutesAfterMidnight) })
+                at: ((e["at"]?.array ?? [e["at"]].compactMap { $0 }).compactMap { $0.string.flatMap(minutesAfterMidnight) }),
+                before: min(max(e["before"]?.number ?? 2, 0), 60), between: TimeWindow.decode(e["between"])
             )
         }
         guard !rules.isEmpty else { return nil }
@@ -212,6 +236,26 @@ struct ReactionsSpec: Hashable, Sendable {
     }
 }
 
+/// A video layer that alternates between its clip (the show) and a calm resting loop. The show plays a full
+/// cycle from `at`, the moment that matches the resting loop's first frame, hands over to the resting loop there,
+/// and comes back after `minutes`, the next time the resting loop wraps.
+struct RestSpec: Hashable, Sendable {
+    var video: String
+    var src: String
+    var at: Double
+    var minutes: Double
+
+    static func decode(_ r: JSONValue?) -> RestSpec? {
+        guard let r, let video = r["video"]?.string, let src = r["src"]?.string, let at = r["at"]?.number else { return nil }
+        return RestSpec(video: video, src: src, at: max(at, 0), minutes: max(r["minutes"]?.number ?? 10, 0.5))
+    }
+}
+
+/// Which part of a show-and-rest wallpaper plays; the person's choice, not the package's.
+enum RestMode: String, Codable, CaseIterable, Sendable {
+    case cycle, rest, show
+}
+
 struct ResolvedScene: Hashable, Sendable {
     var canvas: CGSize
     var fps: Int
@@ -220,6 +264,7 @@ struct ResolvedScene: Hashable, Sendable {
     var audio: AudioSpec?
     var captions: CaptionsSpec?
     var reactions: ReactionsSpec?
+    var rest: RestSpec?
     var layers: [LayerSpec]
 
     /// One full-canvas video and nothing else: AVPlayerLayer can show it with no GPU composition.
@@ -334,6 +379,7 @@ enum SceneResolver {
             audio: audio,
             captions: CaptionsSpec.decode(scene["captions"]),
             reactions: ReactionsSpec.decode(scene["reactions"]),
+            rest: RestSpec.decode(scene["rest"]),
             layers: layers.compactMap(LayerDecoder.decode)
         )
     }

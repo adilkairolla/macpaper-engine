@@ -26,6 +26,7 @@ final class VideoSource {
     private var loopObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var introBoundary: Any?
+    private var markBoundary: Any?
     private var introTarget: Double?
     /// Playing the clip from the start towards `freeze`, after which it holds.
     private(set) var inIntro: Bool
@@ -259,6 +260,15 @@ final class VideoSource {
         if let item = player.currentItem, item.currentTime().seconds >= seconds { settleIntro() }
     }
 
+    /// Calls `handler` whenever playback passes `seconds`, on every loop.
+    func onPassing(_ seconds: Double, _ handler: @escaping @MainActor () -> Void) {
+        if let markBoundary { player.removeTimeObserver(markBoundary) }
+        let t = CMTime(seconds: seconds, preferredTimescale: 600)
+        markBoundary = player.addBoundaryTimeObserver(forTimes: [NSValue(time: t)], queue: .main) {
+            MainActor.assumeIsolated { handler() }
+        }
+    }
+
     private func disarmIntro() {
         if let introBoundary { player.removeTimeObserver(introBoundary) }
         introBoundary = nil
@@ -357,6 +367,8 @@ final class VideoSource {
         onEnded = nil
         onSettled = nil
         disarmIntro()
+        if let markBoundary { player.removeTimeObserver(markBoundary) }
+        markBoundary = nil
         loopObservation = nil
         trackObservations.removeAll()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }

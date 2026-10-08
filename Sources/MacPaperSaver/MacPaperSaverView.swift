@@ -114,6 +114,7 @@ final class MacPaperSaverView: ScreenSaverView {
         r.focus = s.focus(for: screenKey)
         r.showAll = s.showAll
         r.reactions = s.reactions
+        r.restMode = s.restMode
         if s.span, !isPreview, spansEveryScreen, let screen = window?.screen, let span = Span.of(screen) {
             r.span = span
             r.focus = s.focus(for: AppState.allDisplaysKey)

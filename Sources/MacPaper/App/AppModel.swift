@@ -237,6 +237,11 @@ final class AppModel {
         if s.cycles != old.cycles { rescheduleCycles() }
     }
 
+    /// The running session for a wallpaper on the desktop, for live controls such as the timeline.
+    func session(for wallpaper: Wallpaper) -> SceneSession? {
+        SessionStore.shared.sessions(for: wallpaper.id).first
+    }
+
     func values(for wallpaper: Wallpaper) -> [String: JSONValue] {
         SceneResolver.effectiveValues(wallpaper.manifest, stored: state.settings(wallpaper.id).values)
     }
@@ -352,6 +357,7 @@ final class AppModel {
         r.focus = s.focus(for: display)
         r.showAll = s.showAll
         r.reactions = s.reactions
+        r.restMode = s.restMode
         if s.span, let screen = desktop.screen(for: display), isEverywhere(wallpaper) {
             r.span = Span.of(screen)
             if r.span != nil { r.focus = s.focus(for: AppState.allDisplaysKey) }

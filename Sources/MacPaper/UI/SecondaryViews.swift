@@ -288,6 +288,92 @@ struct SettingsView: View {
     }
 }
 
+/// The wallpaper's timeline: what is playing, where, and controls to jump or switch between show and rest.
+struct NowPlaying: View {
+    @Environment(AppModel.self) private var model
+    let wallpaper: Wallpaper
+    @State private var dragging: Double?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            if let session = model.session(for: wallpaper), let p = session.playhead {
+                content(session, p)
+            }
+        }
+    }
+
+    private func content(_ session: SceneSession, _ p: SceneSession.Playhead) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if p.canSwitch {
+                    Picker("Now", selection: Binding(
+                        get: { p.phase == .rest },
+                        set: { session.switchPhase(toRest: $0) }
+                    )) {
+                        Text("Show").tag(false)
+                        Text("Rest").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                Text(status(p)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                Button { session.skipPlayhead(by: -10) } label: { Image(systemName: "gobackward.10") }
+                    .buttonStyle(.borderless)
+                    .help("Back 10 seconds")
+                    .accessibilityLabel("Back 10 seconds")
+                Text(Self.clock(dragging ?? p.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Slider(value: Binding(
+                    get: { dragging ?? p.position },
+                    set: { dragging = $0 }
+                ), in: 0...max(p.duration, 1)) { editing in
+                    if !editing, let v = dragging {
+                        session.seekPlayhead(to: v)
+                        dragging = nil
+                    }
+                }
+                .overlay(alignment: .leading) { handoffMark(p) }
+                .accessibilityLabel(p.phase == .rest ? "Rest so far" : "Position")
+                .accessibilityValue("\(Self.clock(dragging ?? p.position)) of \(Self.clock(p.duration))")
+                Text(Self.clock(p.duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Button { session.skipPlayhead(by: 10) } label: { Image(systemName: "goforward.10") }
+                    .buttonStyle(.borderless)
+                    .help("Forward 10 seconds")
+                    .accessibilityLabel("Forward 10 seconds")
+            }
+            .disabled(p.phase == .reaction)
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder private func handoffMark(_ p: SceneSession.Playhead) -> some View {
+        if let at = p.handoff, p.duration > 0 {
+            GeometryReader { g in
+                Capsule().fill(Color.orange).frame(width: 2, height: 10)
+                    .position(x: g.size.width * at / p.duration, y: g.size.height / 2)
+            }
+            .allowsHitTesting(false)
+            .help("She sits down to rest here")
+        }
+    }
+
+    private func status(_ p: SceneSession.Playhead) -> String {
+        switch p.phase {
+        case .reaction: "Reacting…"
+        case .rest: "Resting · \(Self.clock(max(p.duration - p.position, 0))) left"
+        case .show: p.handoff.map { "Rests at \(Self.clock($0))" } ?? "Playing"
+        }
+    }
+
+    static func clock(_ seconds: Double) -> String {
+        let s = Int(max(seconds, 0).rounded(.down))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -309,9 +395,17 @@ struct MenuBarView: View {
                     .padding(12)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if RestSpec.decode(current.manifest.raw["rest"]) != nil {
+                    RestModePicker(wallpaper: current).controlSize(.small).frame(maxWidth: .infinity)
+                }
+                NowPlaying(wallpaper: current)
                 if current.manifest.allControls.contains(where: \.quick) {
                     ControlsView(wallpaper: current, quickOnly: true)
                 }
+                if let reactions = ReactionsSpec.decode(current.manifest.raw["reactions"]) {
+                    reactionsRow(current, reactions)
+                }
+                adjustments(current)
             } else {
                 Text("No wallpaper playing").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 60)
             }
@@ -327,6 +421,10 @@ struct MenuBarView: View {
                 } else {
                     control("Shuffle", "shuffle") { model.shuffle() }
                 }
+            }
+
+            if !model.state.playlists.isEmpty {
+                playlistMenu
             }
 
             let recents = model.recentWallpapers.prefix(6)
@@ -371,6 +469,94 @@ struct MenuBarView: View {
         .task(id: model.currentWallpaper) {
             if let current = model.currentWallpaper { hasSound = await model.hasSound(current) } else { hasSound = false }
         }
+    }
+
+    private func reactionsRow(_ wallpaper: Wallpaper, _ spec: ReactionsSpec) -> some View {
+        let s = model.settings(wallpaper.id)
+        let showOnly = wallpaper.manifest.raw["rest"] != nil && s.restMode == .show
+        return HStack {
+            Toggle("React to you", isOn: Binding(
+                get: { model.settings(wallpaper.id).reactions },
+                set: { v in model.update(wallpaper.id) { $0.reactions = v } }
+            ))
+            .toggleStyle(.switch)
+            .disabled(showOnly)
+            Spacer()
+            Menu("Play a reaction") {
+                ForEach(spec.rules, id: \.trigger) { rule in
+                    Button(ReactionsSection.title(rule)) { model.tryReaction(rule.trigger, of: wallpaper) }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!s.reactions || showOnly)
+        }
+        .controlSize(.small)
+    }
+
+    private func adjustments(_ wallpaper: Wallpaper) -> some View {
+        func binding(_ key: WritableKeyPath<WallpaperSettings, Double>) -> Binding<Double> {
+            Binding(get: { model.settings(wallpaper.id)[keyPath: key] }, set: { v in model.update(wallpaper.id) { $0[keyPath: key] = v } })
+        }
+        let s = model.settings(wallpaper.id)
+        let changed = s.brightness != 1 || s.speed != 1
+        return VStack(spacing: 6) {
+            HStack {
+                Text("Brightness \(Int((s.brightness * 100).rounded()))% · Speed \(String(format: "%.1f", s.speed))×")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset") {
+                    model.update(wallpaper.id) {
+                        $0.brightness = 1
+                        $0.speed = 1
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+                .disabled(!changed)
+                .help("Back to normal brightness and speed")
+            }
+            slider("Brightness", "sun.min", "sun.max", binding(\.brightness), 0.3...1.6)
+            slider("Speed", "tortoise", "hare", binding(\.speed), 0.1...3)
+            if hasSound {
+                slider("Volume", "speaker", "speaker.wave.3", binding(\.volume), 0...1)
+            }
+        }
+        .controlSize(.small)
+    }
+
+    private func slider(_ name: String, _ low: String, _ high: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
+        Slider(value: value, in: range) {
+            Text(name)
+        } minimumValueLabel: {
+            Image(systemName: low).frame(width: 18).foregroundStyle(.secondary)
+        } maximumValueLabel: {
+            Image(systemName: high).frame(width: 18).foregroundStyle(.secondary)
+        }
+        .labelsHidden()
+        .help(name)
+        .accessibilityValue(name == "Speed" ? String(format: "%.1f times", value.wrappedValue) : "\(Int((value.wrappedValue * 100).rounded())) percent")
+    }
+
+    private var playlistMenu: some View {
+        let playing = model.desktop.displays.first.flatMap { model.playlist(onDisplay: $0.id) }
+        return Menu {
+            ForEach(model.state.playlists) { p in
+                Button {
+                    model.play(p)
+                } label: {
+                    if p.id == playing?.id { Label(p.name, systemImage: "checkmark") } else { Text(p.name) }
+                }
+            }
+            if let playing {
+                Divider()
+                Button("Stop “\(playing.name)”") { model.stop(playing) }
+            }
+        } label: {
+            Label(playing.map { "Playlist: \($0.name)" } ?? "Play a playlist", systemImage: "list.bullet.rectangle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private func control(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {

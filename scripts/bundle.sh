@@ -42,6 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.entertainment</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>MacPaper checks when your next calendar event starts so a wallpaper character can react just before it. Nothing leaves your Mac.</string>
   <key>NSScreenCaptureUsageDescription</key><string>MacPaper listens to system audio so audio-reactive wallpapers can follow your music. No video is recorded.</string>
   <key>CFBundleURLTypes</key><array><dict>
     <key>CFBundleURLName</key><string>com.adilkairolla.macpaper</string>

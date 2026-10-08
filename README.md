@@ -103,7 +103,8 @@ The app's Screen Saver page offers to update the installed screen saver when the
 | **Displays** | The same wallpaper everywhere or a different one per display. Choose what each display keeps in view when its shape differs from the wallpaper's, or show the whole picture with bars. |
 | **Adjust** | Per wallpaper: speed, frame rate, brightness, contrast, saturation, warmth, parallax strength, volume. |
 | **Playlists** | Named sets of wallpapers that play one after another — each video once through (short loops for at least 3 minutes), or for a set time — in order or shuffled, on the desktop or in the screen saver. |
-| **Reactions** | A character can react to you: a short clip when you unlock, come back, click the desktop, at a set time or now and then, fading back into the loop. |
+| **Reactions** | A character can react to you: a short clip when you unlock, come back, click the desktop, start music, plug in the charger, have a meeting coming up, sit idle late at night, at a set time or now and then — fading back into the loop. Any reaction can be limited to certain hours. |
+| **Show and rest** | A character wallpaper can alternate its full video with a calm resting loop she reacts from, handing over on a matching frame. Choose show and rest, rest only, or show only; see where it is on a timeline and jump or switch any time. |
 | **Spanning** | One picture across all your displays, lined up the way they're arranged. |
 | **Screen saver** | A real `.saver` that plays any wallpaper live with your settings — the current one, a chosen one, a playlist, or a shuffle of your favorites or library. |
 | **Freeze guard** | Checks every few seconds that each display's wallpaper is still moving, and repairs one that isn't. |
@@ -116,7 +117,7 @@ The app's Screen Saver page offers to update the installed screen saver when the
 - **Apply** — double-click a wallpaper, press <kbd>⌘</kbd><kbd>↩</kbd>, or use **Apply** in the inspector. With different wallpapers per display, Apply targets the display the MacPaper window is on; the arrow next to it picks another display or all of them.
 - **Customize** — the inspector has three tabs: **Controls** (the wallpaper's own knobs), **Adjust** (framing, motion, color, sound) and **Info** (details, validation, live frame rate).
 - **Playlists** — **New Playlist** in the sidebar, then pick wallpapers (search by tag, then **Select All Shown**). Drag to reorder, double-click to play from one. Picking a wallpaper by hand stops the playlist on that display.
-- **Menu bar** — pause, mute, shuffle (next, while a playlist plays), recent wallpapers and the wallpaper's quick controls, without opening the window.
+- **Menu bar** — pause, mute, shuffle (next, while a playlist plays), recent wallpapers, the wallpaper's quick controls, its show-and-rest mode and timeline, reactions, brightness and speed (with reset), and which playlist plays, without opening the window.
 - **Undo** — applying, shuffling, deleting and resetting can all be undone with <kbd>⌘</kbd><kbd>Z</kbd>. Deleted packages go to the Trash, and Undo brings them back with their settings.
 
 | Shortcut | |
@@ -237,7 +238,7 @@ Running the binary with no arguments starts the app.
 | `macpaper://link?path=<folder>[&apply=false]` | Add a folder in place, with live reload |
 | `macpaper://play?playlist=<name or id>` | Play a playlist |
 | `macpaper://next` · `pause` · `resume` · `toggle` | Next in the playlist (or shuffle) and playback |
-| `macpaper://react?event=<unlock\|wake\|return\|click\|time\|random>` | Play a reaction now |
+| `macpaper://react?event=<unlock\|wake\|return\|click\|time\|random\|idle\|charge\|music\|meeting>` | Play a reaction now |
 
 These work from Shortcuts, Raycast, Alfred, cron or a shell: `open "macpaper://next"`.
 

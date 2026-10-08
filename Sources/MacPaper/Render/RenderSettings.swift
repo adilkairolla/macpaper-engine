@@ -23,12 +23,14 @@ struct RenderSettings: Equatable {
     var maxFPS: Int = 120
     var span: Span?
     var reactions = true
+    var restMode = RestMode.cycle
 
     static func == (a: RenderSettings, b: RenderSettings) -> Bool {
         a.focus == b.focus && a.showAll == b.showAll && a.speed == b.speed && a.fpsCap == b.fpsCap && a.grade == b.grade
             && a.parallaxStrength == b.parallaxStrength && a.pointerParallax == b.pointerParallax
             && a.renderScale == b.renderScale && a.volume == b.volume && a.muted == b.muted
             && a.allowVideoFastPath == b.allowVideoFastPath && a.maxFPS == b.maxFPS && a.span == b.span && a.reactions == b.reactions
+            && a.restMode == b.restMode
     }
 }
 

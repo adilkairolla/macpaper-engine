@@ -96,6 +96,8 @@ struct WallpaperSettings: Codable, Equatable {
     var span = false
     /// Plays the wallpaper's reaction clips when something happens.
     var reactions = true
+    /// For wallpapers with a resting loop: alternate, rest only, or show only.
+    var restMode = RestMode.cycle
     var speed: Double = 1
     var fpsCap: Int = 0
     var brightness: Double = 1
@@ -118,6 +120,7 @@ struct WallpaperSettings: Codable, Equatable {
         showAll = (try? c.decode(Bool.self, forKey: .showAll)) ?? d.showAll
         span = (try? c.decode(Bool.self, forKey: .span)) ?? d.span
         reactions = (try? c.decode(Bool.self, forKey: .reactions)) ?? d.reactions
+        restMode = (try? c.decode(RestMode.self, forKey: .restMode)) ?? d.restMode
         speed = (try? c.decode(Double.self, forKey: .speed)) ?? d.speed
         fpsCap = (try? c.decode(Int.self, forKey: .fpsCap)) ?? d.fpsCap
         brightness = (try? c.decode(Double.self, forKey: .brightness)) ?? d.brightness

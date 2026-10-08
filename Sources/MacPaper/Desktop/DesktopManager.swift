@@ -58,6 +58,7 @@ final class DesktopManager {
     @ObservationIgnored private var clickMonitor: Any?
     @ObservationIgnored private var idleTimer: Timer?
     @ObservationIgnored private var peakIdle: Double = 0
+    @ObservationIgnored private let calendar = CalendarWatch()
     @ObservationIgnored var assignment: ((String) -> Wallpaper?)?
     @ObservationIgnored var values: ((Wallpaper) -> [String: JSONValue])?
     @ObservationIgnored var settings: ((Wallpaper, String) -> RenderSettings)?
@@ -79,6 +80,7 @@ final class DesktopManager {
                 MainActor.assumeIsolated { self?.react(trigger) }
             }
         }
+        calendar.onMeeting = { [weak self] in self?.react(.meeting) }
         trackPolicyInputs()
     }
 
@@ -450,10 +452,12 @@ final class DesktopManager {
         }
     }
 
-    private func showsReaction(to trigger: ReactionTrigger) -> Bool {
-        slots.contains { slot in
-            guard let session = slot.view?.session else { return false }
-            return session.reactionsEnabled && session.scene.reactions?.rule(for: trigger) != nil
+    private func showsReaction(to trigger: ReactionTrigger) -> Bool { !rulesShown(for: trigger).isEmpty }
+
+    private func rulesShown(for trigger: ReactionTrigger) -> [ReactionsSpec.Rule] {
+        slots.compactMap { slot in
+            guard let session = slot.view?.session, session.reactionsEnabled else { return nil }
+            return session.scene.reactions?.rule(for: trigger)
         }
     }
 
@@ -469,7 +473,7 @@ final class DesktopManager {
             clickMonitor = nil
         }
         // Being away usually means locked or asleep, so the poll keeps running while wallpapers are paused.
-        let away = showsReaction(to: .comeBack)
+        let away = showsReaction(to: .comeBack) || showsReaction(to: .idle)
         if away, idleTimer == nil {
             idleTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pollIdle() }
@@ -479,6 +483,13 @@ final class DesktopManager {
             t.invalidate()
             idleTimer = nil
             peakIdle = 0
+        }
+        let meetings = rulesShown(for: .meeting)
+        if let lead = meetings.map(\.before).max() {
+            calendar.lead = lead * 60
+            calendar.start()
+        } else {
+            calendar.stop()
         }
     }
 
@@ -490,6 +501,7 @@ final class DesktopManager {
             react(.comeBack, away: away)
         } else {
             peakIdle = max(peakIdle, idle)
+            if idle >= 10 { react(.idle, away: idle) }
         }
     }
 

@@ -50,6 +50,7 @@ final class WallpaperView: NSView {
         applyAudio()
         session.setSpeed(settings.speed)
         session.reactionsEnabled = settings.reactions
+        session.restMode = settings.restMode
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -255,6 +256,7 @@ final class WallpaperView: NSView {
         applyAudio()
         session.setSpeed(settings.speed)
         session.reactionsEnabled = settings.reactions
+        session.restMode = settings.restMode
         content?.apply(settings)
         incoming?.apply(settings)
         if old.showAll != settings.showAll || old.span != settings.span { needsLayout = true }

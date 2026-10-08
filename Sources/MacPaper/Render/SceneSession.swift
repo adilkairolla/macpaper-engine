@@ -61,8 +61,17 @@ final class SceneSession {
     private var lastReactionAt: CFTimeInterval = -.infinity
     private var reactionTurns: [ReactionTrigger: Int] = [:]
     private var reactionTimers: [Timer] = []
+    private var idleStretchReacted: TimeInterval = 0
     /// The user's switch; a forced reaction (a preview button) plays anyway.
     var reactionsEnabled = true
+
+    /// With a `rest` block: whether the layer plays its show or the resting loop, and since when on the clock.
+    private var resting = false
+    private var phaseStart = 0.0
+    var restMode = RestMode.cycle {
+        didSet { if restMode != oldValue { restModeChanged() } }
+    }
+    private static let handoffFade = 0.4
 
     init(wallpaper: Wallpaper, values: [String: JSONValue]) {
         self.wallpaper = wallpaper
@@ -106,8 +115,8 @@ final class SceneSession {
             case .particles(let p):
                 if let m = p.mask { requestTexture(m) }
                 if let t = p.texture, p.shape == .texture { requestTexture(t) }
-            case .video(let v):
-                guard layer.visible, let url = wallpaper.file(v.src) else { continue }
+            case .video:
+                guard layer.visible, let v = videoSpec(layer), let url = wallpaper.file(v.src) else { continue }
                 wantedVideos.insert(layer.id)
                 if reaction?.layer == layer.id {
                     reaction?.base = v
@@ -115,6 +124,8 @@ final class SceneSession {
                 }
                 if let existing = videos[layer.id], existing.url == url, existing.loops == (v.crossfade <= 0) {
                     existing.update(spec: v)
+                } else if videos[layer.id] == nil, let rest = scene.rest, rest.video == layer.id {
+                    startShow(rest, layer: layer.id, url: url, spec: v, fade: nil)
                 } else {
                     let changed = videos[layer.id].map { $0.url != url } ?? false
                     replaceVideo(layer.id, url: url, spec: v, intro: changed && v.intro)
@@ -170,6 +181,10 @@ final class SceneSession {
         guard videos[id] === source else { return }
         if reaction?.source === source {
             endReaction()
+            return
+        }
+        if let rest = scene.rest, rest.video == id {
+            restLoopWrapped(rest, layer: id, source: source)
             return
         }
         NotificationCenter.default.post(name: Self.clipEnded, object: self, userInfo: ["layer": id])
@@ -362,9 +377,10 @@ final class SceneSession {
         reaction = nil
         fadeOverride.removeAll()
         for layer in scene.layers where layer.visible {
-            guard let v = layer.video, let url = wallpaper.file(v.src), let old = videos[layer.id] else { continue }
+            guard let v = videoSpec(layer), let url = wallpaper.file(v.src), let old = videos[layer.id] else { continue }
             let resumeAt = interrupted?.layer == layer.id ? interrupted?.resumeAt : old.position
             replaceVideo(layer.id, url: url, spec: v, intro: false, startAt: v.freeze == nil ? resumeAt : nil, announce: false)
+            if let rest = scene.rest, rest.video == layer.id, !resting { armHandoff(rest, layer: layer.id) }
         }
         notify()
         return true
@@ -379,12 +395,28 @@ final class SceneSession {
     @discardableResult
     func react(_ trigger: ReactionTrigger, away: Double? = nil, force: Bool = false) -> Bool {
         guard let spec = scene.reactions, let rule = spec.rule(for: trigger), reaction == nil else { return false }
+        if let rest = scene.rest, !resting {
+            // Reactions are made from the resting pose; a preview button cuts the show short to play one.
+            guard force, restMode == .cycle else { return false }
+            enterRest(rest)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.handoffFade + 0.6) { [weak self] in
+                MainActor.assumeIsolated { _ = self?.react(trigger, away: away, force: true) }
+            }
+            return true
+        }
         let now = CACurrentMediaTime()
         if !force {
             guard reactionsEnabled, runningSince != nil, now - lastReactionAt >= rule.cooldown ?? spec.cooldown else { return false }
-            if trigger == .comeBack, (away ?? 0) < rule.idle { return false }
+            if rule.between?.contains(Date()) == false { return false }
+            if trigger == .comeBack || trigger == .idle, (away ?? 0) < rule.idle { return false }
+            if trigger == .idle {
+                // Polled every few seconds while idle: one reaction per stretch without input.
+                let stretch = Date().timeIntervalSince1970 - (away ?? 0)
+                guard abs(stretch - idleStretchReacted) > 10 else { return false }
+                idleStretchReacted = stretch
+            }
         }
-        guard let layer = scene.layers.first(where: { $0.id == spec.video }), layer.visible, let base = layer.video,
+        guard let layer = scene.layers.first(where: { $0.id == spec.video }), layer.visible, let base = videoSpec(layer),
               let current = videos[layer.id], current.failed == nil else { return false }
         let turn = reactionTurns[trigger, default: 0]
         reactionTurns[trigger] = turn + 1
@@ -427,6 +459,161 @@ final class SceneSession {
             }
         }
         notify()
+    }
+
+    // MARK: Show and rest
+
+    /// The clip a video layer plays now: with a `rest` block, the resting loop while she rests.
+    private func videoSpec(_ layer: LayerSpec) -> VideoSpec? {
+        guard var v = layer.video else { return nil }
+        if resting, let rest = scene.rest, rest.video == layer.id { v.src = rest.src }
+        return v
+    }
+
+    private func startShow(_ rest: RestSpec, layer id: String, url: URL, spec: VideoSpec, fade: Double?) {
+        resting = false
+        phaseStart = time(at: CACurrentMediaTime())
+        if let fade { fadeOverride[id] = fade }
+        replaceVideo(id, url: url, spec: spec, intro: false, fade: fade, startAt: rest.at, announce: fade == nil)
+        armHandoff(rest, layer: id)
+        clearFadeOverride(id, after: fade)
+    }
+
+    private func armHandoff(_ rest: RestSpec, layer id: String) {
+        guard let source = videos[id] else { return }
+        // Starting on the hand-off point counts as passing it; only a full cycle later does the show hand over.
+        source.onPassing(rest.at) { [weak self, weak source] in
+            guard let self, let source, !self.resting, self.restMode == .cycle, self.videos[id] === source, source.duration > 0,
+                  self.time(at: CACurrentMediaTime()) - self.phaseStart >= source.duration - 1.5 else { return }
+            self.enterRest(rest)
+        }
+    }
+
+    private func enterRest(_ rest: RestSpec) {
+        guard let layer = scene.layers.first(where: { $0.id == rest.video }), var v = layer.video,
+              let url = wallpaper.file(rest.src) else { return }
+        resting = true
+        phaseStart = time(at: CACurrentMediaTime())
+        v.src = rest.src
+        fadeOverride[layer.id] = Self.handoffFade
+        replaceVideo(layer.id, url: url, spec: v, intro: false, fade: Self.handoffFade, announce: false)
+        clearFadeOverride(layer.id, after: Self.handoffFade)
+        Log.shared.write("\(wallpaper.title): resting")
+        notify()
+    }
+
+    /// A resting cycle ends when the loop wraps after `minutes`; the app may move a playlist on here, and
+    /// otherwise the show plays again.
+    private func restLoopWrapped(_ rest: RestSpec, layer id: String, source: VideoSource) {
+        if restMode != .cycle {
+            NotificationCenter.default.post(name: Self.clipEnded, object: self, userInfo: ["layer": id])
+            return
+        }
+        guard resting, reaction == nil, time(at: CACurrentMediaTime()) - phaseStart >= rest.minutes * 60 else { return }
+        NotificationCenter.default.post(name: Self.clipEnded, object: self, userInfo: ["layer": id])
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.resting, self.reaction == nil, self.videos[id] === source,
+                      let layer = self.scene.layers.first(where: { $0.id == id }), let show = layer.video,
+                      let url = self.wallpaper.file(show.src) else { return }
+                self.startShow(rest, layer: id, url: url, spec: show, fade: Self.handoffFade)
+                Log.shared.write("\(self.wallpaper.title): show")
+            }
+        }
+    }
+
+    private func restModeChanged() {
+        guard let rest = scene.rest else { return }
+        switch restMode {
+        case .rest:
+            if !resting { enterRest(rest) }
+        case .show:
+            guard resting, let layer = scene.layers.first(where: { $0.id == rest.video }), let show = layer.video,
+                  let url = wallpaper.file(show.src) else { return }
+            reaction = nil
+            startShow(rest, layer: layer.id, url: url, spec: show, fade: Self.handoffFade)
+        case .cycle:
+            phaseStart = time(at: CACurrentMediaTime())
+        }
+    }
+
+    // MARK: Playhead
+
+    /// Where the wallpaper's main clip is, for a timeline the person can scrub.
+    struct Playhead {
+        enum Phase { case show, rest, reaction }
+        var phase: Phase
+        /// Show: seconds into the clip. Rest: seconds rested so far.
+        var position: Double
+        /// Show: the clip's length. Rest: how long she rests.
+        var duration: Double
+        /// Show, alternating with rest: where she sits down.
+        var handoff: Double?
+        var canSwitch: Bool
+    }
+
+    private var mainVideoLayer: String? {
+        scene.rest?.video ?? scene.layers.first { $0.visible && $0.video.map { $0.freeze == nil } == true }?.id
+    }
+
+    var playhead: Playhead? {
+        guard let id = mainVideoLayer, let source = videos[id], source.duration > 0 else { return nil }
+        let alternates = scene.rest != nil && restMode == .cycle
+        if reaction?.layer == id {
+            return Playhead(phase: .reaction, position: source.position, duration: source.duration, handoff: nil, canSwitch: false)
+        }
+        if let rest = scene.rest, resting {
+            let length = rest.minutes * 60
+            return Playhead(phase: .rest, position: min(time(at: CACurrentMediaTime()) - phaseStart, length), duration: length,
+                            handoff: nil, canSwitch: alternates)
+        }
+        return Playhead(phase: .show, position: source.position, duration: source.duration,
+                        handoff: alternates ? scene.rest?.at : nil, canSwitch: alternates)
+    }
+
+    /// Jumps the show to `seconds`, or sets how long she has rested.
+    func seekPlayhead(to seconds: Double) {
+        guard let id = mainVideoLayer, let source = videos[id], reaction == nil else { return }
+        let now = time(at: CACurrentMediaTime())
+        if let rest = scene.rest, resting {
+            phaseStart = now - min(max(seconds, 0), rest.minutes * 60)
+            return
+        }
+        guard source.duration > 0 else { return }
+        let t = (seconds.truncatingRemainder(dividingBy: source.duration) + source.duration).truncatingRemainder(dividingBy: source.duration)
+        source.seek(to: t)
+        if let rest = scene.rest {
+            // The show hands over a full cycle after `at`; from here that is the rest of the way round.
+            let along = (t - rest.at + source.duration).truncatingRemainder(dividingBy: source.duration)
+            phaseStart = now - along
+        }
+        notify()
+    }
+
+    func skipPlayhead(by seconds: Double) {
+        guard let p = playhead, p.phase != .reaction else { return }
+        seekPlayhead(to: p.position + seconds)
+    }
+
+    /// Show and rest only: starts the show or the rest right now.
+    func switchPhase(toRest: Bool) {
+        guard let rest = scene.rest, restMode == .cycle, toRest != resting else { return }
+        reaction = nil
+        if toRest {
+            enterRest(rest)
+        } else if let layer = scene.layers.first(where: { $0.id == rest.video }), let show = layer.video, let url = wallpaper.file(show.src) {
+            startShow(rest, layer: layer.id, url: url, spec: show, fade: Self.handoffFade)
+        }
+    }
+
+    private func clearFadeOverride(_ id: String, after fade: Double?) {
+        guard let fade else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + fade + 1.5) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.reaction?.layer != id else { return }
+                self.fadeOverride[id] = nil
+            }
+        }
     }
 
     private func scheduleReactionTimers() {

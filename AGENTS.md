@@ -115,7 +115,8 @@ Keep `format: 1` backward compatible: new fields are optional with defaults that
 | Control value → layer property | `SceneResolver`, `PropertyPath` |
 | Rotation of choice controls | `WallpaperSettings.cycles(for:)`, `AppModel.rescheduleCycles`, `clipEnded` |
 | Playlists | `Playlist` in `AppState.swift`, `AppModel.play`/`advancePlaylist`, the saver's `pick()` |
-| Reactions | `ReactionsSpec` in `Scene.swift`, `SceneSession.react`, event inputs in `DesktopManager.updateReactionInputs` |
+| Reactions | `ReactionsSpec` in `Scene.swift`, `SceneSession.react`, event inputs in `DesktopManager.updateReactionInputs`, `SystemMonitor` (unlock, wake, charger, music), `CalendarWatch` (meetings) |
+| Show and rest | `RestSpec` in `Scene.swift`, `SceneSession.startShow`/`enterRest`/`restLoopWrapped`, `RestMode` per wallpaper, `SceneSession.playhead` for the menu bar timeline |
 | Spanning | `Span.of(_:)` in `DesktopWindow.swift`, `SceneEncoder.region(…span:)`, `DesktopPicture.syncSpanned` |
 | Freeze guard | `DesktopManager.checkHealth`, `WallpaperView.stall()`, each `SceneContent.stall` |
 | Captions | `SceneSession.say`, `CaptionLayer` |

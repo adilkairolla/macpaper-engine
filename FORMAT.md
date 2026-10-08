@@ -55,6 +55,7 @@ Paths in the manifest are relative to the package and must stay inside it.
 | `audio` | Optional looping sound. Video layers may also carry their own audio. |
 | `captions` | Optional lines a character says over a video layer — see [Captions](#captions). |
 | `reactions` | Optional short clips a video layer plays when something happens — see [Reactions](#reactions). |
+| `rest` | Optional resting loop a video layer alternates with — see [Show and rest](#show-and-rest). |
 
 Colors are `"#rrggbb"`, `"#rrggbbaa"` or `[r, g, b, a]` with 0…1 components.
 
@@ -313,7 +314,10 @@ fades back to the loop where it left off, and doesn't repeat for `cooldown` seco
     { "on": "return", "idle": 300, "clips": ["media/react-welcome.mov"] },
     { "on": "click",  "clips": ["media/react-look.mov", "media/react-wink.mov"], "cooldown": 20 },
     { "on": "time",   "at": ["23:30"], "clips": ["media/react-yawn.mov"] },
-    { "on": "random", "every": 600, "clips": ["media/react-stretch.mov"] }
+    { "on": "random", "every": 600, "clips": ["media/react-stretch.mov"] },
+    { "on": "music",  "clips": ["media/react-dance.mov"] },
+    { "on": "meeting", "before": 2, "clips": ["media/react-shh.mov"] },
+    { "on": "idle",   "idle": 600, "between": ["22:30", "04:00"], "clips": ["media/react-doze.mov"] }
   ]
 }
 ```
@@ -324,7 +328,8 @@ fades back to the loop where it left off, and doesn't repeat for `cooldown` seco
 | `crossfade` | Seconds to fade into a clip and back to the loop; default 0.8. |
 | `cooldown` | Seconds after a reaction before another can start; default 30. An event can set its own. |
 | `enabled` | `false` turns them all off; point a toggle at `reactions.enabled` to let people choose. |
-| `on` | `unlock` (the Mac is unlocked), `wake` (the display wakes), `return` (input again after `idle` seconds without any, default 300), `click` (a click on the visible desktop), `time` (`at`: `"HH:MM"` or a list), `random` (about every `every` seconds, default 600). |
+| `on` | `unlock` (the Mac is unlocked), `wake` (the display wakes), `return` (input again after `idle` seconds without any, default 300), `idle` (no input for `idle` seconds while the screen is still on; once per stretch), `click` (a click on the visible desktop), `time` (`at`: `"HH:MM"` or a list), `random` (about every `every` seconds, default 600), `charge` (the charger is plugged in), `music` (Music or Spotify starts playing after at least a minute of silence), `meeting` (`before` minutes ahead of a calendar event, default 2; the app asks for calendar access the first time). |
+| `between` | Only react between these two times, e.g. `["22:00", "04:00"]`; works for every event. |
 | `clips` | One or more clips; they take turns. |
 
 A reaction only plays while the wallpaper is playing and in view. Make each clip start and end close to
@@ -332,6 +337,28 @@ the loop's look — generated from the same still, with the camera locked — so
 invisible. Captions work for reaction clips too: key their lines by the clip's path. People can turn
 reactions off per wallpaper and try each one from the inspector; `macpaper://react?event=click` plays one
 from Shortcuts.
+
+## Show and rest
+
+A character wallpaper can alternate between a choreographed clip (the show) and a calm resting loop that
+reactions are made from:
+
+```json
+"rest": { "video": "clip", "src": "media/rest.mov", "at": 177.0, "minutes": 10 }
+```
+
+| Field | Meaning |
+|---|---|
+| `video` | The video layer whose `src` is the show. |
+| `src` | The resting loop. |
+| `at` | Seconds into the show whose frame matches the resting loop's first frame: the hand-off point. |
+| `minutes` | How long she rests before the show plays again; default 10. |
+
+The wallpaper opens on the show at `at`, plays one full cycle back to `at`, then dissolves into the resting
+loop over 0.4 s. After `minutes`, the next time the resting loop wraps, it dissolves back into the show at `at`.
+Reactions only play while she rests (a preview button cuts the show short), and a playlist that moves on when the
+video ends counts show plus rest as one turn. Generate the resting loop from the show's frame at `at`, then match
+its framing and colour to that frame, so the hand-off is a still pose rather than a jump.
 
 The app adds its own controls to every wallpaper: framing (fill the display, show all of the canvas
 with bars, or span one picture across every display), crop focus per display, speed, frame‑rate cap,

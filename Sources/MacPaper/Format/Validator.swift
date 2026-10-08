@@ -201,10 +201,30 @@ enum Validator {
                         issues.append(.error("\(at).at", "required: a time like \"23:30\", or a list of them"))
                     }
                 }
-                let known: Set<String> = ["on", "clips", "clip", "cooldown", "idle", "every", "at"]
+                if let b = e["before"], b.number == nil { issues.append(.error("\(at).before", "must be a number of minutes")) }
+                if e["between"] != nil, ReactionsSpec.TimeWindow.decode(e["between"]) == nil {
+                    issues.append(.error("\(at).between", "must be two different times, like [\"22:00\", \"04:00\"]"))
+                }
+                let known: Set<String> = ["on", "clips", "clip", "cooldown", "idle", "every", "at", "before", "between"]
                 for key in (e.object ?? [:]).keys where !known.contains(key) {
                     issues.append(.warning("\(at).\(key)", "unknown property for an event"))
                 }
+            }
+        }
+
+        if let r = m.raw["rest"] {
+            if let video = r["video"]?.string {
+                if !m.layers.contains(where: { $0["id"]?.string == video && $0["type"]?.string == "video" }) {
+                    issues.append(.error("rest.video", "must name a video layer"))
+                }
+            } else {
+                issues.append(.error("rest.video", "required: the id of the video layer whose clip is the show"))
+            }
+            if let src = r["src"]?.string { file(src, "rest.src") } else { issues.append(.error("rest.src", "required: the resting loop")) }
+            if r["at"]?.number == nil { issues.append(.error("rest.at", "required: seconds into the show that match the resting loop's first frame")) }
+            if let minutes = r["minutes"], minutes.number == nil { issues.append(.error("rest.minutes", "must be a number of minutes")) }
+            for key in (r.object ?? [:]).keys where !["video", "src", "at", "minutes"].contains(key) {
+                issues.append(.warning("rest.\(key)", "unknown property"))
             }
         }
 
